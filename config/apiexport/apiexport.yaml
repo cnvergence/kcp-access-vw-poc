@@ -1,0 +1,53 @@
+# APIExport for the Access Virtual Workspace's system API.
+#
+# Two jobs:
+#
+#   1. Define the SelfClusterAccessReview resource so consumer
+#      workspaces can serve it via APIBinding.
+#   2. Declare the PermissionClaims the access VW controller needs in
+#      bound workspaces — every (Cluster)RoleBinding it watches lives
+#      in a consumer workspace, and the controller can only see them
+#      if the consumer accepts the claims via APIBinding.
+#
+# This APIExport is the "opt-in" mechanism: a workspace becomes
+# discoverable via SCAR iff it APIBindings to this APIExport AND
+# accepts the permission claims below. Workspaces that don't bind
+# stay invisible to the indexer regardless of what RBAC they have.
+#
+# This object is created in the workspace where the access VW lives
+# (typically a system / root-adjacent workspace). The
+# APIExportEndpointSlice generated for it is what
+# cmd/server -apiexport-endpointslice points at.
+apiVersion: apis.kcp.io/v1alpha2
+kind: APIExport
+metadata:
+  name: access.kcp.io
+spec:
+  resources:
+    - name: selfclusteraccessreviews
+      group: access.kcp.io
+      schema: v1alpha1.selfclusteraccessreviews.access.kcp.io
+      storage:
+        crd: {}
+
+  # PermissionClaims: what the controller needs to read across every
+  # bound workspace.
+  #
+  # Verbs are restricted to read-only — the controller never mutates
+  # RBAC. Cluster(Role) is claimed alongside (Cluster)RoleBinding so
+  # the future "view-or-above" verb resolver can trace bindings to
+  # rules without an additional binding. Until that resolver lands,
+  # the role claims are unused but harmless.
+  permissionClaims:
+    - group: rbac.authorization.k8s.io
+      resource: clusterrolebindings
+      verbs: [get, list, watch]
+    - group: rbac.authorization.k8s.io
+      resource: rolebindings
+      verbs: [get, list, watch]
+    - group: rbac.authorization.k8s.io
+      resource: clusterroles
+      verbs: [get, list, watch]
+    - group: rbac.authorization.k8s.io
+      resource: roles
+      verbs: [get, list, watch]

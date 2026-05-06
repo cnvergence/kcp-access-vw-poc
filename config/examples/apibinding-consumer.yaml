@@ -1,0 +1,45 @@
+# Example APIBinding for a consumer workspace that wants to be
+# discoverable via SCAR.
+#
+# Apply this in any workspace whose users should see it in their
+# SelfClusterAccessReview response. Without this binding the
+# workspace is invisible to the indexer — that's the "opt-in"
+# behaviour by design.
+#
+# The path under spec.reference.export.path must match where the
+# access.kcp.io APIExport was created (usually a system /
+# root-adjacent workspace). Adjust before applying.
+apiVersion: apis.kcp.io/v1alpha2
+kind: APIBinding
+metadata:
+  name: access.kcp.io
+spec:
+  reference:
+    export:
+      # Path is the logical cluster where the APIExport lives.
+      # Replace with the actual path in your kcp deployment, e.g.
+      # "root:system:access" or wherever you applied apiexport.yaml.
+      path: root
+      name: access.kcp.io
+
+  # Each permission claim the APIExport asks for must be explicitly
+  # accepted here, otherwise kcp will not let the access VW controller
+  # see those resources in this workspace. Accepting all four matches
+  # the claim list in apiexport.yaml.
+  permissionClaims:
+    - group: rbac.authorization.k8s.io
+      resource: clusterrolebindings
+      verbs: [get, list, watch]
+      state: Accepted
+    - group: rbac.authorization.k8s.io
+      resource: rolebindings
+      verbs: [get, list, watch]
+      state: Accepted
+    - group: rbac.authorization.k8s.io
+      resource: clusterroles
+      verbs: [get, list, watch]
+      state: Accepted
+    - group: rbac.authorization.k8s.io
+      resource: roles
+      verbs: [get, list, watch]
+      state: Accepted

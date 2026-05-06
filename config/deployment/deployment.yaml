@@ -1,0 +1,96 @@
+# Deployment for the access VW server.
+#
+# Single-replica controller. The graph is in-memory, so running more
+# than one replica gives every replica a separate view of the world
+# and produces inconsistent SCAR responses depending on which pod
+# fields the request. HA needs either a shared store (out of scope
+# for the PoC) or fronting with a cache + leader election; for now,
+# stick to one replica.
+#
+# Auth model: the server trusts X-Remote-User / X-Remote-Group
+# headers as authoritative. That is only safe behind kcp's
+# FrontProxy, which authenticates the caller (bearer token / cert)
+# and rewrites those headers before forwarding. Do not expose this
+# Service externally.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: access-vw
+  labels:
+    app.kubernetes.io/name: access-vw
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: access-vw
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: access-vw
+    spec:
+      serviceAccountName: access-vw
+      containers:
+        - name: server
+          image: ghcr.io/cnvergence/kcp-access-vw:latest
+          imagePullPolicy: IfNotPresent
+          args:
+            - -addr=:8080
+            - -kubeconfig=/etc/kcp/kubeconfig/kubeconfig
+            - -apiexport-endpointslice=access.kcp.io
+            # endpoint-base must match the FrontProxy URL prefix used
+            # to address bound workspaces. Set per-deployment.
+            - -endpoint-base=https://kcp.example.com/clusters/
+          ports:
+            - name: http
+              containerPort: 8080
+          readinessProbe:
+            httpGet:
+              path: /healthz
+              port: http
+            periodSeconds: 5
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: http
+            periodSeconds: 30
+          volumeMounts:
+            - name: kubeconfig
+              mountPath: /etc/kcp/kubeconfig
+              readOnly: true
+          resources:
+            requests:
+              cpu: 100m
+              memory: 128Mi
+            limits:
+              memory: 512Mi
+      volumes:
+        - name: kubeconfig
+          secret:
+            # Secret must contain a key "kubeconfig" pointing at the
+            # access VW's APIExport virtual workspace. Generated when
+            # the APIExport is created in kcp; export the relevant
+            # workspace's kubeconfig with the system identity that
+            # owns access.kcp.io.
+            secretName: access-vw-kubeconfig
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: access-vw
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: access-vw
+  labels:
+    app.kubernetes.io/name: access-vw
+spec:
+  type: ClusterIP
+  selector:
+    app.kubernetes.io/name: access-vw
+  ports:
+    - name: http
+      port: 80
+      targetPort: http

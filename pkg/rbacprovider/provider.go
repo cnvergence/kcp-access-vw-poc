@@ -25,12 +25,20 @@ var _ accessprovider.AccessProvider = (*Provider)(nil)
 // Translator, and marks the graph Ready once the initial sync
 // completes.
 //
-// Provider supports two modes:
+// Provider supports three modes, picked at Start time from the
+// fields set on the struct:
 //
-//   - Live mode: RestConfig is non-nil. Start builds a
-//     kubernetes.Interface, runs informers, and feeds the translator
-//     with real events.
-//   - Stub mode: RestConfig is nil. Start sets up the translator,
+//   - Multi-shard (preferred): RestConfig and APIExportEndpointSlice
+//     are both set. Start brings up a multicluster-runtime manager
+//     backed by the kcp apiexport provider, and runs CRB/RB
+//     reconcilers across every workspace that has an APIBinding to
+//     the access VW's APIExport. This is the production wiring.
+//   - Single-shard: RestConfig is set, APIExportEndpointSlice is
+//     empty. Start uses standard client-go informers against one
+//     shard. Useful for development against a non-kcp Kubernetes
+//     cluster, or for a kcp setup with a single shard exposed on the
+//     supplied REST config.
+//   - Stub mode: RestConfig is nil. Start builds the translator,
 //     marks the graph Ready (with an empty data set), and blocks on
 //     ctx. Useful for the demo binary and for tests that drive the
 //     translator manually via the Translator() accessor.
@@ -39,9 +47,17 @@ type Provider struct {
 	// each cluster's endpoint. Per-cluster URL is base + cluster name.
 	EndpointBaseURL string
 
-	// RestConfig is the Kubernetes REST config the provider talks to.
-	// When nil, Provider runs in stub mode (see type doc).
+	// RestConfig is the Kubernetes/kcp REST config the provider
+	// talks to. When nil, Provider runs in stub mode. In multi-shard
+	// mode this should point at the kcp root shard so the apiexport
+	// virtual workspace can be reached.
 	RestConfig *rest.Config
+
+	// APIExportEndpointSlice is the name of the APIExportEndpointSlice
+	// object the apiexport multicluster provider should follow. When
+	// non-empty, Start runs in multi-shard mode. Empty means single-
+	// shard (or stub if RestConfig is also nil).
+	APIExportEndpointSlice string
 
 	translator *Translator
 }
@@ -62,32 +78,32 @@ func (p *Provider) Translator() *Translator {
 	return p.translator
 }
 
-// Start implements accessprovider.AccessProvider.
-//
-// In live mode it builds a kubernetes.Interface from RestConfig,
-// stands up CRB and RB informers, waits for the initial cache sync,
-// marks the graph Ready, and blocks until ctx is cancelled.
-//
-// In stub mode (RestConfig is nil) it just builds the translator,
-// marks the graph Ready, and blocks until ctx is cancelled.
+// Start implements accessprovider.AccessProvider. It dispatches to
+// one of three execution modes (multi-shard, single-shard, stub)
+// based on which fields are populated; see the Provider type doc for
+// the rules.
 //
 // Returning a non-nil error means the provider has given up; the
 // caller is expected to log it and exit (or restart the provider).
 func (p *Provider) Start(ctx context.Context, g *graph.Graph) error {
 	p.translator = NewTranslator(g)
 
-	if p.RestConfig == nil {
+	switch {
+	case p.RestConfig != nil && p.APIExportEndpointSlice != "":
+		return p.runMulticluster(ctx, p.RestConfig, g)
+
+	case p.RestConfig != nil:
+		client, err := kubernetes.NewForConfig(p.RestConfig)
+		if err != nil {
+			return fmt.Errorf("build kubernetes client: %w", err)
+		}
+		return p.runInformers(ctx, client, g)
+
+	default:
 		g.SetReady()
 		<-ctx.Done()
 		return nil
 	}
-
-	client, err := kubernetes.NewForConfig(p.RestConfig)
-	if err != nil {
-		return fmt.Errorf("build kubernetes client: %w", err)
-	}
-
-	return p.runInformers(ctx, client, g)
 }
 
 // endpointFor derives a workspace's FrontProxy URL from its logical

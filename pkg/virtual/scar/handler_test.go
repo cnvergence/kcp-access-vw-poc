@@ -8,14 +8,12 @@ import (
 	"testing"
 
 	"github.com/cnvergence/kcp-access-vw/pkg/graph"
-	"github.com/cnvergence/kcp-access-vw/pkg/scar"
+	"github.com/cnvergence/kcp-access-vw/pkg/virtual/auth"
+	"github.com/cnvergence/kcp-access-vw/pkg/virtual/scar"
 )
 
 // newReadyGraph returns a graph populated with the given grants and
-// marked as ready, ready to be wrapped by Handler.
-//
-// Grants are passed as triples of (subjectKind, subjectName, clusterName).
-// Endpoints follow the synthetic format used in tests.
+// marked as ready.
 func newReadyGraph(t *testing.T, grants []grant) *graph.Graph {
 	t.Helper()
 	g := graph.New()
@@ -45,8 +43,10 @@ func endpoint(name string) string {
 	return "https://kcp.example.com/clusters/" + name
 }
 
-// doSCAR sends a POST to the handler with the given headers and
-// returns the recorder.
+// Tests use HeaderResolver — it doesn't need a real kcp. The auth
+// layer is independently tested in pkg/virtual/auth.
+var testResolver auth.Resolver = auth.HeaderResolver{}
+
 func doSCAR(h http.Handler, method string, headers map[string][]string) *httptest.ResponseRecorder {
 	req := httptest.NewRequest(method, scar.Path, strings.NewReader(""))
 	for k, vs := range headers {
@@ -60,7 +60,7 @@ func doSCAR(h http.Handler, method string, headers map[string][]string) *httptes
 func TestHandler_methodNotAllowed(t *testing.T) {
 	g := graph.New()
 	g.SetReady()
-	h := scar.Handler(g)
+	h := scar.Handler(g, testResolver)
 
 	for _, method := range []string{http.MethodGet, http.MethodPut, http.MethodDelete, http.MethodPatch} {
 		rr := doSCAR(h, method, map[string][]string{"X-Remote-User": {"alice"}})
@@ -73,7 +73,7 @@ func TestHandler_methodNotAllowed(t *testing.T) {
 func TestHandler_missingUserReturns401(t *testing.T) {
 	g := graph.New()
 	g.SetReady()
-	h := scar.Handler(g)
+	h := scar.Handler(g, testResolver)
 
 	rr := doSCAR(h, http.MethodPost, nil)
 	if rr.Code != http.StatusUnauthorized {
@@ -83,7 +83,7 @@ func TestHandler_missingUserReturns401(t *testing.T) {
 
 func TestHandler_notReadyReturns503(t *testing.T) {
 	g := graph.New() // never SetReady
-	h := scar.Handler(g)
+	h := scar.Handler(g, testResolver)
 
 	rr := doSCAR(h, http.MethodPost, map[string][]string{"X-Remote-User": {"alice"}})
 	if rr.Code != http.StatusServiceUnavailable {
@@ -95,7 +95,7 @@ func TestHandler_directUserAccess(t *testing.T) {
 	g := newReadyGraph(t, []grant{
 		{graph.SubjectKindUser, "alice", "ws-alice"},
 	})
-	h := scar.Handler(g)
+	h := scar.Handler(g, testResolver)
 
 	rr := doSCAR(h, http.MethodPost, map[string][]string{"X-Remote-User": {"alice"}})
 
@@ -130,7 +130,7 @@ func TestHandler_groupAccess(t *testing.T) {
 		{graph.SubjectKindGroup, "eng", "ws-eng-1"},
 		{graph.SubjectKindGroup, "eng", "ws-eng-2"},
 	})
-	h := scar.Handler(g)
+	h := scar.Handler(g, testResolver)
 
 	rr := doSCAR(h, http.MethodPost, map[string][]string{
 		"X-Remote-User":  {"alice"},
@@ -152,13 +152,11 @@ func TestHandler_groupAccess(t *testing.T) {
 }
 
 func TestHandler_multipleGroupHeaders(t *testing.T) {
-	// FrontProxy sends each group as its own X-Remote-Group header
-	// value. r.Header.Values must pick all of them up.
 	g := newReadyGraph(t, []grant{
 		{graph.SubjectKindGroup, "eng", "ws-eng"},
 		{graph.SubjectKindGroup, "platform", "ws-platform"},
 	})
-	h := scar.Handler(g)
+	h := scar.Handler(g, testResolver)
 
 	rr := doSCAR(h, http.MethodPost, map[string][]string{
 		"X-Remote-User":  {"alice"},
@@ -183,7 +181,7 @@ func TestHandler_unknownUserReturnsEmpty(t *testing.T) {
 	g := newReadyGraph(t, []grant{
 		{graph.SubjectKindUser, "alice", "ws-alice"},
 	})
-	h := scar.Handler(g)
+	h := scar.Handler(g, testResolver)
 
 	rr := doSCAR(h, http.MethodPost, map[string][]string{"X-Remote-User": {"nobody"}})
 
@@ -203,7 +201,7 @@ func TestHandler_unknownUserReturnsEmpty(t *testing.T) {
 
 func TestHandler_contentTypeIsJSON(t *testing.T) {
 	g := newReadyGraph(t, nil)
-	h := scar.Handler(g)
+	h := scar.Handler(g, testResolver)
 
 	rr := doSCAR(h, http.MethodPost, map[string][]string{"X-Remote-User": {"alice"}})
 
