@@ -26,6 +26,11 @@ go.work.sum
 
 # env file
 .env
+bin/
+# Generated kubeconfig from SCAR demo
+scar.kubeconfig
+.github
+.claude
 
 # Editor/IDE
 # .idea/

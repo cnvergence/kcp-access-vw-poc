@@ -6,12 +6,12 @@
 
 KUBECONFIG       ?= $(HOME)/.kcp/admin.kubeconfig
 ENDPOINT_BASE    ?= https://localhost:6443/clusters/
-ADDR             ?= :8080
+ADDR             ?= 9099
 APIEXPORT_SLICE  ?= access.kcp.io
 EXPORT_PATH      ?= root
 TEST_WORKSPACE   ?= test-workspace
 
-SCAR_URL := http://localhost$(ADDR)/services/access-virtual-workspace/apis/access.kcp.io/v1alpha1/selfclusteraccessreviews
+SCAR_URL = http://localhost:$(ADDR)/services/access-virtual-workspace/apis/access.kcp.io/v1alpha1/selfclusteraccessreviews
 
 .PHONY: help
 help: ## Show available targets
@@ -20,8 +20,9 @@ help: ## Show available targets
 # ── Build & test ─────────────────────────────────────────────────────
 
 .PHONY: build
-build: ## Build the access-vw binary into bin/
+build: ## Build the access-vw and scar-to-kubeconfig binaries into bin/
 	go build -o bin/access-vw ./cmd/server
+	go build -o bin/scar-to-kubeconfig ./cmd/scar-to-kubeconfig
 
 .PHONY: test
 test: ## Run unit tests
@@ -39,12 +40,6 @@ tidy: ## Sync go.mod / go.sum
 clean: ## Remove build artifacts
 	rm -rf bin/
 
-# ── Demo / standalone ────────────────────────────────────────────────
-
-.PHONY: run-demo
-run-demo: build ## Run in demo mode (no kcp; static demo data; header auth)
-	./bin/access-vw -addr $(ADDR)
-
 # ── kcp setup ────────────────────────────────────────────────────────
 #
 # Run these against the workspace where the access VW's APIExport
@@ -52,51 +47,46 @@ run-demo: build ## Run in demo mode (no kcp; static demo data; header auth)
 
 .PHONY: install-apiexport
 install-apiexport: ## Install the access.kcp.io APIExport + ARS in $(EXPORT_PATH)
-	kubectl --kubeconfig=$(KUBECONFIG) ws use $(EXPORT_PATH)
-	kubectl --kubeconfig=$(KUBECONFIG) apply -f config/apiexport/apiresourceschema.yaml
-	kubectl --kubeconfig=$(KUBECONFIG) apply -f config/apiexport/apiexport.yaml
-
-.PHONY: uninstall-apiexport
-uninstall-apiexport: ## Remove the access.kcp.io APIExport + ARS from $(EXPORT_PATH)
-	kubectl --kubeconfig=$(KUBECONFIG) ws use $(EXPORT_PATH)
-	-kubectl --kubeconfig=$(KUBECONFIG) delete -f config/apiexport/apiexport.yaml
-	-kubectl --kubeconfig=$(KUBECONFIG) delete -f config/apiexport/apiresourceschema.yaml
+	kubectl ws use $(EXPORT_PATH)
+	kubectl apply -f config/apiexport/apiresourceschema.yaml
+	kubectl apply -f config/apiexport/apiexport.yaml
 
 .PHONY: show-apiexport
 show-apiexport: ## Show the APIExport, ARS and generated EndpointSlice
-	kubectl --kubeconfig=$(KUBECONFIG) ws use $(EXPORT_PATH)
-	kubectl --kubeconfig=$(KUBECONFIG) get apiexports.apis.kcp.io
-	kubectl --kubeconfig=$(KUBECONFIG) get apiresourceschemas.apis.kcp.io
-	kubectl --kubeconfig=$(KUBECONFIG) get apiexportendpointslices.apis.kcp.io 2>/dev/null || true
+	kubectl ws use $(EXPORT_PATH)
+	kubectl get apiexports.apis.kcp.io
+	kubectl get apiresourceschemas.apis.kcp.io
+	kubectl get apiexportendpointslices.apis.kcp.io 2>/dev/null || true
 
 # ── Test workspace setup ─────────────────────────────────────────────
 
 .PHONY: create-test-workspace
 create-test-workspace: ## Create $(TEST_WORKSPACE) under $(EXPORT_PATH) and bind the APIExport
-	kubectl --kubeconfig=$(KUBECONFIG) ws use $(EXPORT_PATH)
-	-kubectl --kubeconfig=$(KUBECONFIG) ws create $(TEST_WORKSPACE)
-	kubectl --kubeconfig=$(KUBECONFIG) ws use $(TEST_WORKSPACE)
-	kubectl --kubeconfig=$(KUBECONFIG) apply -f config/examples/apibinding-consumer.yaml
-
-.PHONY: delete-test-workspace
-delete-test-workspace: ## Delete $(TEST_WORKSPACE) (and its bindings/RBAC)
-	kubectl --kubeconfig=$(KUBECONFIG) ws use $(EXPORT_PATH)
-	-kubectl --kubeconfig=$(KUBECONFIG) ws delete $(TEST_WORKSPACE)
+	kubectl ws use $(EXPORT_PATH)
+	-kubectl ws create $(TEST_WORKSPACE)
+	kubectl ws use $(TEST_WORKSPACE)
+	kubectl apply -f config/examples/apibinding-consumer.yaml
+	kubectl ws use $(EXPORT_PATH)
 
 .PHONY: seed-rbac
 seed-rbac: ## Apply sample CRBs (alice / eng / platform) to the current workspace
-	kubectl --kubeconfig=$(KUBECONFIG) ws use $(TEST_WORKSPACE)
-	kubectl --kubeconfig=$(KUBECONFIG) apply -f hack/seed-rbac.yaml
+	kubectl ws use $(EXPORT_PATH)/$(TEST_WORKSPACE)
+	kubectl apply -f hack/seed-rbac.yaml
+	kubectl ws use $(EXPORT_PATH)
 
-.PHONY: unseed-rbac
-unseed-rbac: ## Remove the sample CRBs from $(TEST_WORKSPACE)
-	kubectl --kubeconfig=$(KUBECONFIG) ws use $(TEST_WORKSPACE)
-	-kubectl --kubeconfig=$(KUBECONFIG) delete -f hack/seed-rbac.yaml
+
+.PHONY: cleanup
+cleanup: ## Remove all test resources: RBAC, test workspace, APIExport
+	-kubectl ws use $(EXPORT_PATH)/$(TEST_WORKSPACE) && kubectl delete -f hack/seed-rbac.yaml
+	-kubectl ws use $(EXPORT_PATH) && kubectl ws delete $(TEST_WORKSPACE)
+	-kubectl ws use $(EXPORT_PATH) && kubectl delete -f config/apiexport/apiexport.yaml
+	-kubectl ws use $(EXPORT_PATH) && kubectl delete -f config/apiexport/apiresourceschema.yaml
+	kubectl ws use $(EXPORT_PATH)
 
 # ── Run against kcp ──────────────────────────────────────────────────
 
 .PHONY: run-kcp
-run-kcp: build ## Run against kcp in multi-shard mode (uses APIExport)
+run-kcp: build ## Run against kcp with trusted headers (for smoke tests with X-Remote-User)
 	./bin/access-vw \
 		-addr $(ADDR) \
 		-kubeconfig $(KUBECONFIG) \
@@ -104,13 +94,13 @@ run-kcp: build ## Run against kcp in multi-shard mode (uses APIExport)
 		-endpoint-base $(ENDPOINT_BASE) \
 		-trust-headers
 
-.PHONY: run-kcp-single
-run-kcp-single: build ## Run against kcp in single-shard mode (client-go informers)
+.PHONY: run-kcp-tokenauth
+run-kcp-tokenauth: build ## Run against kcp with bearer-token auth (for MCP demo)
 	./bin/access-vw \
 		-addr $(ADDR) \
 		-kubeconfig $(KUBECONFIG) \
-		-endpoint-base $(ENDPOINT_BASE) \
-		-trust-headers
+		-apiexport-endpointslice $(APIEXPORT_SLICE) \
+		-endpoint-base $(ENDPOINT_BASE)
 
 # ── Smoke tests ──────────────────────────────────────────────────────
 
@@ -135,4 +125,27 @@ scar-multi: ## Issue a SCAR as alice in groups eng+platform
 
 .PHONY: healthz
 healthz: ## Hit /healthz
-	@curl -sf http://localhost$(ADDR)/healthz; echo
+	@curl -sf http://localhost:$(ADDR)/healthz; echo
+
+# ── MCP demo (manual scoping) ────────────────────────────────────────────────
+
+TOKEN         ?=
+MCP_KUBECONFIG ?= scar.kubeconfig
+
+.PHONY: mcp-demo
+mcp-demo: build ## Generate a scoped kubeconfig from SCAR for kubernetes-mcp-server
+	@TOKEN_VAL="$(TOKEN)"; \
+	if [ -z "$$TOKEN_VAL" ]; then \
+		kubectl ws use $(EXPORT_PATH)/$(TEST_WORKSPACE) >/dev/null 2>&1 || true; \
+		TOKEN_VAL=$$(kubectl create token test-sa --namespace=default --duration=1h 2>/dev/null); \
+	fi; \
+	if [ -z "$$TOKEN_VAL" ]; then \
+		echo "error: could not obtain a token. Pass TOKEN=... or ensure test-sa exists (make seed-rbac)." >&2; \
+		exit 1; \
+	fi; \
+	./bin/scar-to-kubeconfig -scar-url "$(SCAR_URL)" -token "$$TOKEN_VAL" -insecure -output $(MCP_KUBECONFIG); \
+	echo ""; \
+	echo "Next steps:"; \
+	echo "  kubernetes-mcp-server --kubeconfig=$(MCP_KUBECONFIG) --cluster-provider=kcp"; \
+	echo ""; \
+	echo "Then connect your MCP client (e.g. Claude Code) to that server."

@@ -13,6 +13,7 @@ import (
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/log"
 	"sigs.k8s.io/controller-runtime/pkg/manager"
+	metricsserver "sigs.k8s.io/controller-runtime/pkg/metrics/server"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
 	mcbuilder "sigs.k8s.io/multicluster-runtime/pkg/builder"
@@ -78,6 +79,7 @@ func (p *Provider) runMulticluster(ctx context.Context, cfg *rest.Config, g *gra
 
 	mgr, err := mcmanager.New(cfg, provider, manager.Options{
 		Scheme: sch,
+		Metrics: metricsserver.Options{BindAddress: "0"}, // disable; access-vw has its own HTTP server
 	})
 	if err != nil {
 		return fmt.Errorf("construct multicluster manager: %w", err)
@@ -109,12 +111,6 @@ func (p *Provider) runMulticluster(ctx context.Context, cfg *rest.Config, g *gra
 	return mgr.Start(ctx)
 }
 
-// registerRBACControllers wires CRB and RB reconcilers into the
-// supplied multicluster manager. The reconcilers share the supplied
-// translator, so overlapping subjects across kinds reference-count
-// cleanly. endpointFor maps a cluster name to its FrontProxy URL —
-// supplied by the caller (Provider.endpointFor) so this function
-// stays decoupled from Provider's other state.
 func registerRBACControllers(
 	mgr mcmanager.Manager,
 	t *Translator,
@@ -141,12 +137,6 @@ func registerRBACControllers(
 	return nil
 }
 
-// reconcileCRB handles a ClusterRoleBinding event in the cluster
-// identified by req.ClusterName.
-//
-// On NotFound the binding has been deleted: tell the translator to
-// drop its references. Otherwise apply the current state — the
-// translator's diff/refcount logic handles updates idempotently.
 func reconcileCRB(
 	ctx context.Context,
 	mgr mcmanager.Manager,
@@ -173,8 +163,6 @@ func reconcileCRB(
 	return reconcile.Result{}, nil
 }
 
-// reconcileRB handles a RoleBinding event. Same shape as reconcileCRB,
-// just with namespace as part of the key.
 func reconcileRB(
 	ctx context.Context,
 	mgr mcmanager.Manager,

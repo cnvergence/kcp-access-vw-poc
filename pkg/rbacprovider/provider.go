@@ -106,9 +106,6 @@ func (p *Provider) Start(ctx context.Context, g *graph.Graph) error {
 	}
 }
 
-// endpointFor derives a workspace's FrontProxy URL from its logical
-// cluster name. Used by the informer event handlers when calling
-// Apply* on the translator.
 func (p *Provider) endpointFor(c graph.LogicalCluster) string {
 	return p.EndpointBaseURL + string(c)
 }

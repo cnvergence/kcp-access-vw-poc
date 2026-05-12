@@ -10,17 +10,19 @@ The common operations are wrapped in the `Makefile` — `make help` lists them. 
 - `kcp` running locally — typically via `kcp start` from a kcp checkout; the admin kubeconfig lands at `~/.kcp/admin.kubeconfig`
 - `kubectl` with the `kubectl-ws` plugin (`go install github.com/kcp-dev/kcp/cmd/kubectl-kcp/...` or the `krew` plugin)
 - `jq` for prettifying SCAR responses
-- (optional) a real Bearer-token issuer if you want to exercise the `TokenReviewResolver` path; for the basic flow `-trust-headers` is enough
+- (optional) [`kubernetes-mcp-server`](https://github.com/containers/kubernetes-mcp-server) for the MCP demo
 
-If your kcp lives somewhere else, set `KUBECONFIG=/path/to/kubeconfig` in your shell — every `make` target below reads it from the environment.
+If your kcp lives somewhere else, set `KUBECONFIG=/path/to/kubeconfig` in your shell — every `make` target reads it from the environment.
+
+> **⚠ Kubeconfig mutation:** `kubectl ws use` writes the selected workspace's server URL back into the kubeconfig file. If you run `kubectl ws use test-workspace` and then restart access-vw, it will read the mutated kubeconfig pointing at the child workspace instead of root. The make targets handle this (they restore context to root when done), but be aware of it if you use `kubectl ws` manually. Fix with `kubectl ws use ':root'`.
 
 ## Recommended flow
 
-The shape is: install the APIExport once, start the server early against an empty graph, then create the test workspace and seed RBAC while watching the server's logs. That way you see clusters engage and grants flow through reactively, which is both more demonstrative and easier to debug when something doesn't line up.
+Install the APIExport once, start the server early against an empty graph, then create the test workspace and seed RBAC while watching the server's logs. That way you see clusters engage and grants flow through reactively.
 
 ## 1. Install the system APIExport
 
-The Access VW only indexes workspaces that opt in by binding the `access.kcp.io` APIExport. Install it once in `root` (or another system-adjacent workspace; the `EXPORT_PATH` make variable controls which):
+The Access VW only indexes workspaces that opt in by binding the `access.kcp.io` APIExport. Install it once in `root`:
 
 ```sh
 make install-apiexport
@@ -32,7 +34,7 @@ Verify:
 make show-apiexport
 ```
 
-You should see one `APIExport` named `access.kcp.io`, one `APIResourceSchema` (`v1alpha1.selfclusteraccessreviews.access.kcp.io`), and — within a few seconds — a generated `APIExportEndpointSlice` named `access.kcp.io`. That slice name is what `-apiexport-endpointslice` points at. If you skip ahead and try `make run-kcp` before the slice exists, the server will exit immediately with a "construct apiexport provider" error; wait a moment and retry.
+You should see one `APIExport` named `access.kcp.io`, one `APIResourceSchema`, and — within a few seconds — a generated `APIExportEndpointSlice` named `access.kcp.io`. If the slice doesn't exist yet and you try `make run-kcp`, the server will exit with a "construct apiexport provider" error; wait a moment and retry.
 
 ## 2. Build and run the Access VW
 
@@ -40,16 +42,16 @@ You should see one `APIExport` named `access.kcp.io`, one `APIResourceSchema` (`
 make run-kcp
 ```
 
-This runs the binary in multi-shard mode (multicluster-runtime backed by the apiexport provider) with `-trust-headers` enabled so curl can authenticate by setting headers. Leave this terminal running and watch the logs — you'll see them tick over as you do the next steps.
+This runs in multi-shard mode with `-trust-headers` enabled so curl can authenticate by setting `X-Remote-User` / `X-Remote-Group` headers. Leave this terminal running.
 
 You should see, in order:
 
-1. `rbacprovider running multi-shard ...` from `cmd/server`.
-2. `access-vw listening on :8080`.
-3. Manager startup messages from controller-runtime.
-4. `access graph marked ready (multicluster manager started)` from `runMulticluster`.
+1. `rbacprovider running multi-shard ...`
+2. `access-vw listening on :9099`
+3. Controller-runtime startup messages.
+4. `access graph marked ready (multicluster manager started)`
 
-At this point the graph is ready but empty — there are no consumer workspaces yet. `/healthz` returns 200:
+At this point the graph is ready but empty. `/healthz` returns 200:
 
 ```sh
 make healthz
@@ -59,12 +61,10 @@ And SCAR returns an empty result for any caller:
 
 ```sh
 make scar-alice
-# {"kind": "SelfClusterAccessReview", "apiVersion": "access.kcp.io/v1alpha1", "status": {"clusters": []}}
+# {"kind": "SelfClusterAccessReview", ..., "status": {"clusters": []}}
 ```
 
-That's the right starting state — every step from here adds real data.
-
-> **⚠ Header trust:** `-trust-headers` is only safe when nothing untrusted can reach `:8080`. The flag is gated behind an explicit opt-in for that reason. Don't expose this port without FrontProxy or a real auth layer in front.
+> **⚠ Header trust:** `-trust-headers` is only safe when nothing untrusted can reach `:9099`. Don't expose this port without a front-proxy or real auth layer in front.
 
 ## 3. Create a test workspace and bind it
 
@@ -74,18 +74,17 @@ In another terminal:
 make create-test-workspace
 ```
 
-This creates `test-workspace` under the export path, switches into it, and applies `config/examples/apibinding-consumer.yaml`. The binding is the explicit "yes, index me" signal — without it the workspace stays invisible.
+This creates `test-workspace` under root, applies `config/examples/apibinding-consumer.yaml` (the APIBinding), and restores the kubeconfig context to root.
 
-Switch back to the terminal running the access-vw and watch the logs. You should see the apiexport provider engage a new cluster: a line about a cluster being added to the manager, then reconcile-loop chatter as the controllers start their per-cluster informer caches. The graph itself is still empty — the workspace has no RBAC yet.
+Watch the access-vw logs — you should see the apiexport provider engage a new cluster. The graph is still empty because the workspace has no RBAC yet.
 
 Confirm the binding is `Ready`:
 
 ```sh
-kubectl --kubeconfig=$KUBECONFIG ws use test-workspace
-kubectl --kubeconfig=$KUBECONFIG get apibindings access.kcp.io -o yaml | grep -A1 phase
+kubectl ws use ':root:test-workspace'
+kubectl get apibindings access.kcp.io -o yaml | grep -A1 phase
+kubectl ws use ':root'
 ```
-
-If it sits in `Binding` for more than a few seconds, the most common cause is that the consumer didn't accept the permission claims — the manifest already does so, but a manual edit could leave one unaccepted.
 
 ## 4. Seed some RBAC
 
@@ -93,9 +92,7 @@ If it sits in `Binding` for more than a few seconds, the most common cause is th
 make seed-rbac
 ```
 
-This applies four `ClusterRoleBindings` to the test workspace: a user (`alice`), two groups (`eng`, `platform`), and a service account (`default:test-sa`). They all reference the standard `view` `ClusterRole`. In the current MVP the Access VW doesn't inspect role verbs — any binding counts — so the role choice doesn't matter; the bindings just have to exist.
-
-Back in the access-vw terminal, each new CRB should produce a reconcile event. With four bindings, you'll see four reconciles touch the translator and Grant on the graph.
+This applies `ClusterRoleBindings` for: user `alice`, groups `eng` and `platform`, service account `test-sa`, plus a `workspace-admin` ClusterRole granting workspace create/delete permissions. Each new CRB triggers a reconcile event in the access-vw logs.
 
 ## 5. Query SCAR
 
@@ -103,7 +100,7 @@ Back in the access-vw terminal, each new CRB should produce a reconcile event. W
 make scar-alice
 ```
 
-Now you should see something like:
+You should see:
 
 ```json
 {
@@ -120,9 +117,7 @@ Now you should see something like:
 }
 ```
 
-`clusterName` is the logical-cluster identifier of the test workspace; `endpoint` is the FrontProxy URL the consumer's clients should use to reach it.
-
-Try the group path:
+Try other identities:
 
 ```sh
 make scar-eng       # anyone in group eng
@@ -133,23 +128,30 @@ A user with no matching binding returns an empty `clusters` array:
 
 ```sh
 curl -sf -X POST -H 'X-Remote-User: nobody' \
-  http://localhost:8080/services/access-virtual-workspace/apis/access.kcp.io/v1alpha1/selfclusteraccessreviews | jq
+  http://localhost:9099/services/access-virtual-workspace/apis/access.kcp.io/v1alpha1/selfclusteraccessreviews | jq
 ```
+
+### Debug endpoint
+
+Check the current graph state:
+
+```sh
+curl -s http://localhost:9099/debug/graph | jq
+```
+
+Returns subjects (with their cluster mappings) and clusters (with their endpoints).
 
 ## 6. Watch updates propagate
 
-The whole reason for running the server early is to see this loop work. Delete one of the bindings:
+Delete one of the bindings:
 
 ```sh
-kubectl --kubeconfig=$KUBECONFIG ws use test-workspace
-kubectl --kubeconfig=$KUBECONFIG delete clusterrolebinding access-vw-test--alice-viewer
+kubectl ws use ':root:test-workspace'
+kubectl delete clusterrolebinding access-vw-test--alice-viewer
+kubectl ws use ':root'
 ```
 
-Within a second or two, `make scar-alice` should stop returning the workspace (alice still has indirect access if she's in `eng` or `platform`; otherwise the response is empty). You'll see a reconcile event in the access-vw logs and the corresponding `Revoke` on the translator.
-
-Delete the consumer's `APIBinding` and the workspace disappears for everyone — that's the opt-in mechanism working in reverse.
-
-> **Known gap:** the current MVP doesn't explicitly handle cluster *disengagement*. When you delete the `APIBinding` (or the entire workspace), the apiexport provider drops the cluster from the fleet, but the translator's refs and the graph's endpoints for that cluster don't get cleaned up automatically. Stale entries can linger until the next access-vw restart. Fixing this is the next concrete item on the TODO list.
+Within seconds, `make scar-alice` should stop returning the workspace (unless alice is also in `eng` or `platform`). You'll see a reconcile event and `Revoke` in the logs.
 
 ## 7. Iterate
 
@@ -169,32 +171,66 @@ make test
 make vet
 ```
 
-## Optional: Bearer-token auth
+## Bearer-token auth
 
-To exercise the `TokenReviewResolver` rather than headers, drop `-trust-headers` from `run-kcp` (run the binary directly without the make target) and POST with `Authorization: Bearer <token>`:
+To exercise the `TokenReviewResolver` path instead of trusted headers:
 
 ```sh
-TOKEN=$(kubectl --kubeconfig=$KUBECONFIG create token --duration=1h test-sa)
+make run-kcp-tokenauth
+```
+
+Then POST with `Authorization: Bearer <token>`:
+
+```sh
+TOKEN=$(kubectl create token test-sa --namespace=default --duration=1h)
 
 curl -sf -X POST \
   -H "Authorization: Bearer $TOKEN" \
-  http://localhost:8080/services/access-virtual-workspace/apis/access.kcp.io/v1alpha1/selfclusteraccessreviews | jq
+  http://localhost:9099/services/access-virtual-workspace/apis/access.kcp.io/v1alpha1/selfclusteraccessreviews | jq
 ```
 
-The Access VW will call `TokenReview` against kcp using its own kubeconfig credentials and use the returned `User.Username` / `User.Groups` as the SCAR identity.
+> **Note:** The `scar-alice` / `scar-eng` smoke targets use `X-Remote-User` headers and only work with `make run-kcp` (trusted headers mode).
+
+## MCP demo (manual scoping)
+
+This proves SCAR's output is consumable by a real MCP server end-to-end. A scoped kubeconfig is generated from SCAR and fed to `kubernetes-mcp-server`, so an MCP client sees exactly the workspaces SCAR returned — no more, no less.
+
+**Snapshot semantics:** the kubeconfig captures access at one moment. It won't reflect RBAC changes mid-session.
+
+### Step-by-step
+
+**1. Start the Access VW with bearer-token auth:**
+
+```sh
+make run-kcp-tokenauth
+```
+
+**2. Generate the scoped kubeconfig:**
+
+```sh
+make mcp-demo
+```
+
+This generates a token from `test-sa`, calls SCAR, and writes `scar.kubeconfig`.
+
+**3. Run the MCP server:**
+
+```sh
+kubernetes-mcp-server --kubeconfig=scar.kubeconfig --cluster-provider=kcp
+```
+
+**4. Connect your MCP client** (e.g. Claude Code, Copilot CLI) and verify it sees only the authorized workspaces. You can list namespaces, create child workspaces, and manage resources — all scoped by SCAR.
+
+### MCP cleanup
+
+```sh
+rm -f scar.kubeconfig
+```
 
 ## Cleanup
 
+Remove all test resources in one command:
+
 ```sh
-make unseed-rbac          # remove sample CRBs
-make delete-test-workspace
-make uninstall-apiexport
+make cleanup
 ```
-
-## Common issues
-
-- **`make run-kcp` exits with "construct apiexport provider: ..."** — usually a missing `APIExportEndpointSlice`. kcp generates the slice asynchronously after `make install-apiexport`; wait a few seconds and `make show-apiexport` until the slice is listed.
-- **SCAR returns 503 forever** — the multicluster manager hasn't marked the graph ready. Check the binary's logs for cache-sync errors.
-- **SCAR returns empty `clusters` for a user who should see workspaces** — the workspace probably hasn't accepted permission claims, so the controller can't see its RBAC. `kubectl get apibindings access.kcp.io -o yaml | grep -B1 -A3 permissionClaims` in the consumer workspace.
-- **`clusterName` is the workspace logical cluster (e.g. `abc12def-...`), not the readable name** — by design. The endpoint URL is what consumers actually need; the readable workspace name isn't part of the SCAR contract.
-- **Stale clusters in SCAR responses after deleting an `APIBinding`** — see the cluster-disengagement gap above; restart the access-vw to clear.

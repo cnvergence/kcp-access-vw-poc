@@ -13,7 +13,10 @@
 // Warrants/Scopes evaluators if those land).
 package graph
 
-import "sync"
+import (
+	"sort"
+	"sync"
+)
 
 // SubjectKind enumerates the kinds of subjects the graph tracks.
 //
@@ -167,4 +170,42 @@ func (g *Graph) Ready() bool {
 	g.readyMu.RLock()
 	defer g.readyMu.RUnlock()
 	return g.ready
+}
+
+// Snapshot is a point-in-time view of the graph for diagnostics.
+type Snapshot struct {
+	Ready    bool                          `json:"ready"`
+	Subjects map[string][]string           `json:"subjects"` // subject → cluster names
+	Clusters map[string]string             `json:"clusters"` // cluster name → endpoint
+}
+
+// Snapshot returns a read-consistent, JSON-friendly view of the graph.
+func (g *Graph) Snapshot() Snapshot {
+	g.mu.RLock()
+	defer g.mu.RUnlock()
+
+	g.readyMu.RLock()
+	defer g.readyMu.RUnlock()
+
+	subjects := make(map[string][]string, len(g.access))
+	for subj, clusters := range g.access {
+		key := string(subj.Kind) + ":" + subj.Name
+		names := make([]string, 0, len(clusters))
+		for c := range clusters {
+			names = append(names, string(c))
+		}
+		sort.Strings(names)
+		subjects[key] = names
+	}
+
+	endpoints := make(map[string]string, len(g.endpoints))
+	for c, ep := range g.endpoints {
+		endpoints[string(c)] = ep
+	}
+
+	return Snapshot{
+		Ready:    g.ready,
+		Subjects: subjects,
+		Clusters: endpoints,
+	}
 }

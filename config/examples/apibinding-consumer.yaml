@@ -31,15 +31,23 @@ spec:
       resource: clusterrolebindings
       verbs: [get, list, watch]
       state: Accepted
+      selector:
+        matchAll: true
     - group: rbac.authorization.k8s.io
       resource: rolebindings
       verbs: [get, list, watch]
       state: Accepted
+      selector:
+        matchAll: true
     - group: rbac.authorization.k8s.io
       resource: clusterroles
       verbs: [get, list, watch]
       state: Accepted
+      selector:
+        matchAll: true
     - group: rbac.authorization.k8s.io
       resource: roles
       verbs: [get, list, watch]
       state: Accepted
+      selector:
+        matchAll: true

@@ -7,181 +7,207 @@ import (
 	"github.com/cnvergence/kcp-access-vw/pkg/graph"
 )
 
-// endpoint constructs a synthetic FrontProxy URL for a workspace name,
-// purely for test readability.
 func endpoint(name string) string {
 	return "https://kcp.example.com/clusters/" + name
 }
 
-// slice is a small helper to construct an expected AccessEndpointSlice
-// from a workspace name, using the same synthetic endpoint format
-// the tests Grant with.
 func slice(name string) graph.AccessEndpointSlice {
 	return graph.AccessEndpointSlice{ClusterName: name, Endpoint: endpoint(name)}
 }
 
-func TestGrant_individualUser(t *testing.T) {
-	g := graph.New()
-	g.Grant(graph.User("alice"), "ws-1", endpoint("ws-1"))
+func TestGrant(t *testing.T) {
+	tests := []struct {
+		name    string
+		setup   func(*graph.Graph)
+		user    string
+		groups  []string
+		want    []graph.AccessEndpointSlice
+	}{
+		{
+			name: "individual user",
+			setup: func(g *graph.Graph) {
+				g.Grant(graph.User("alice"), "ws-1", endpoint("ws-1"))
+			},
+			user: "alice",
+			want: []graph.AccessEndpointSlice{slice("ws-1")},
+		},
+		{
+			name: "group reaches every member",
+			setup: func(g *graph.Graph) {
+				g.Grant(graph.Group("eng"), "ws-1", endpoint("ws-1"))
+				g.Grant(graph.Group("eng"), "ws-2", endpoint("ws-2"))
+			},
+			user:   "alice",
+			groups: []string{"eng"},
+			want:   []graph.AccessEndpointSlice{slice("ws-1"), slice("ws-2")},
+		},
+		{
+			name: "idempotent",
+			setup: func(g *graph.Graph) {
+				g.Grant(graph.User("alice"), "ws-1", endpoint("ws-1"))
+				g.Grant(graph.User("alice"), "ws-1", endpoint("ws-1"))
+			},
+			user: "alice",
+			want: []graph.AccessEndpointSlice{slice("ws-1")},
+		},
+		{
+			name: "endpoint update overwrites",
+			setup: func(g *graph.Graph) {
+				g.Grant(graph.User("alice"), "ws-1", "https://old.example.com/clusters/ws-1")
+				g.Grant(graph.User("alice"), "ws-1", "https://new.example.com/clusters/ws-1")
+			},
+			user: "alice",
+			want: []graph.AccessEndpointSlice{
+				{ClusterName: "ws-1", Endpoint: "https://new.example.com/clusters/ws-1"},
+			},
+		},
+	}
 
-	got := g.ClustersFor("alice", nil)
-	want := []graph.AccessEndpointSlice{slice("ws-1")}
-
-	if !reflect.DeepEqual(got, want) {
-		t.Errorf("ClustersFor(alice) = %v, want %v", got, want)
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			g := graph.New()
+			tt.setup(g)
+			got := g.ClustersFor(tt.user, tt.groups)
+			if !reflect.DeepEqual(got, tt.want) {
+				t.Errorf("ClustersFor(%q, %v) = %v, want %v", tt.user, tt.groups, got, tt.want)
+			}
+		})
 	}
 }
 
-func TestGrant_groupReachesEveryMember(t *testing.T) {
-	g := graph.New()
-	g.Grant(graph.Group("eng"), "ws-1", endpoint("ws-1"))
-	g.Grant(graph.Group("eng"), "ws-2", endpoint("ws-2"))
+func TestClustersFor(t *testing.T) {
+	tests := []struct {
+		name   string
+		setup  func(*graph.Graph)
+		user   string
+		groups []string
+		want   []graph.AccessEndpointSlice
+	}{
+		{
+			name: "union of user and groups",
+			setup: func(g *graph.Graph) {
+				g.Grant(graph.User("alice"), "ws-direct", endpoint("ws-direct"))
+				g.Grant(graph.Group("eng"), "ws-eng", endpoint("ws-eng"))
+				g.Grant(graph.Group("platform"), "ws-platform", endpoint("ws-platform"))
+			},
+			user:   "alice",
+			groups: []string{"eng", "platform"},
+			want:   []graph.AccessEndpointSlice{slice("ws-direct"), slice("ws-eng"), slice("ws-platform")},
+		},
+		{
+			name: "disjoint subjects see only their own",
+			setup: func(g *graph.Graph) {
+				g.Grant(graph.User("alice"), "ws-alice", endpoint("ws-alice"))
+				g.Grant(graph.User("bob"), "ws-bob", endpoint("ws-bob"))
+			},
+			user: "alice",
+			want: []graph.AccessEndpointSlice{slice("ws-alice")},
+		},
+		{
+			name: "unknown user returns empty",
+			setup: func(g *graph.Graph) {
+				g.Grant(graph.User("alice"), "ws-1", endpoint("ws-1"))
+			},
+			user: "nobody",
+			want: nil,
+		},
+		{
+			name: "stable ordering by cluster name",
+			setup: func(g *graph.Graph) {
+				g.Grant(graph.User("alice"), "ws-z", endpoint("ws-z"))
+				g.Grant(graph.User("alice"), "ws-a", endpoint("ws-a"))
+				g.Grant(graph.User("alice"), "ws-m", endpoint("ws-m"))
+			},
+			user: "alice",
+			want: []graph.AccessEndpointSlice{slice("ws-a"), slice("ws-m"), slice("ws-z")},
+		},
+		{
+			name: "deduplicates same cluster via user and group",
+			setup: func(g *graph.Graph) {
+				g.Grant(graph.User("alice"), "ws-shared", endpoint("ws-shared"))
+				g.Grant(graph.Group("eng"), "ws-shared", endpoint("ws-shared"))
+			},
+			user:   "alice",
+			groups: []string{"eng"},
+			want:   []graph.AccessEndpointSlice{slice("ws-shared")},
+		},
+	}
 
-	for _, user := range []string{"alice", "bob"} {
-		got := g.ClustersFor(user, []string{"eng"})
-		want := []graph.AccessEndpointSlice{slice("ws-1"), slice("ws-2")}
-		if !reflect.DeepEqual(got, want) {
-			t.Errorf("ClustersFor(%s, [eng]) = %v, want %v", user, got, want)
-		}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			g := graph.New()
+			tt.setup(g)
+			got := g.ClustersFor(tt.user, tt.groups)
+			if tt.want == nil {
+				if len(got) != 0 {
+					t.Errorf("ClustersFor(%q, %v) = %v, want empty", tt.user, tt.groups, got)
+				}
+				return
+			}
+			if !reflect.DeepEqual(got, tt.want) {
+				t.Errorf("ClustersFor(%q, %v) = %v, want %v", tt.user, tt.groups, got, tt.want)
+			}
+		})
 	}
 }
 
-func TestClustersFor_unionOfUserAndGroups(t *testing.T) {
-	g := graph.New()
-	g.Grant(graph.User("alice"), "ws-direct", endpoint("ws-direct"))
-	g.Grant(graph.Group("eng"), "ws-eng", endpoint("ws-eng"))
-	g.Grant(graph.Group("platform"), "ws-platform", endpoint("ws-platform"))
-
-	got := g.ClustersFor("alice", []string{"eng", "platform"})
-	want := []graph.AccessEndpointSlice{
-		slice("ws-direct"),
-		slice("ws-eng"),
-		slice("ws-platform"),
+func TestRevoke(t *testing.T) {
+	tests := []struct {
+		name   string
+		setup  func(*graph.Graph)
+		user   string
+		groups []string
+		want   []graph.AccessEndpointSlice
+	}{
+		{
+			name: "removes access to one cluster",
+			setup: func(g *graph.Graph) {
+				g.Grant(graph.User("alice"), "ws-1", endpoint("ws-1"))
+				g.Grant(graph.User("alice"), "ws-2", endpoint("ws-2"))
+				g.Revoke(graph.User("alice"), "ws-1")
+			},
+			user: "alice",
+			want: []graph.AccessEndpointSlice{slice("ws-2")},
+		},
+		{
+			name: "idempotent on never-granted",
+			setup: func(g *graph.Graph) {
+				g.Revoke(graph.User("alice"), "ws-1")
+			},
+			user: "alice",
+			want: nil,
+		},
+		{
+			name: "revokes group access",
+			setup: func(g *graph.Graph) {
+				g.Grant(graph.Group("eng"), "ws-1", endpoint("ws-1"))
+				g.Revoke(graph.Group("eng"), "ws-1")
+			},
+			user:   "alice",
+			groups: []string{"eng"},
+			want:   nil,
+		},
 	}
 
-	if !reflect.DeepEqual(got, want) {
-		t.Errorf("union = %v, want %v", got, want)
-	}
-}
-
-func TestClustersFor_disjointSubjects(t *testing.T) {
-	g := graph.New()
-	g.Grant(graph.User("alice"), "ws-alice", endpoint("ws-alice"))
-	g.Grant(graph.User("bob"), "ws-bob", endpoint("ws-bob"))
-
-	if got := g.ClustersFor("alice", nil); !reflect.DeepEqual(got, []graph.AccessEndpointSlice{slice("ws-alice")}) {
-		t.Errorf("alice = %v, want [ws-alice]", got)
-	}
-	if got := g.ClustersFor("bob", nil); !reflect.DeepEqual(got, []graph.AccessEndpointSlice{slice("ws-bob")}) {
-		t.Errorf("bob = %v, want [ws-bob]", got)
-	}
-}
-
-func TestClustersFor_unknownUserReturnsEmpty(t *testing.T) {
-	g := graph.New()
-	g.Grant(graph.User("alice"), "ws-1", endpoint("ws-1"))
-
-	got := g.ClustersFor("nobody", nil)
-	if len(got) != 0 {
-		t.Errorf("unknown user got %v, want empty", got)
-	}
-}
-
-func TestClustersFor_stableOrdering(t *testing.T) {
-	g := graph.New()
-	// Grant in non-alphabetical order; expect sorted output by ClusterName.
-	g.Grant(graph.User("alice"), "ws-z", endpoint("ws-z"))
-	g.Grant(graph.User("alice"), "ws-a", endpoint("ws-a"))
-	g.Grant(graph.User("alice"), "ws-m", endpoint("ws-m"))
-
-	got := g.ClustersFor("alice", nil)
-	want := []graph.AccessEndpointSlice{slice("ws-a"), slice("ws-m"), slice("ws-z")}
-
-	if !reflect.DeepEqual(got, want) {
-		t.Errorf("unordered: got %v, want %v", got, want)
-	}
-}
-
-func TestClustersFor_deduplicates(t *testing.T) {
-	g := graph.New()
-	// Same cluster reachable both directly and via group.
-	g.Grant(graph.User("alice"), "ws-shared", endpoint("ws-shared"))
-	g.Grant(graph.Group("eng"), "ws-shared", endpoint("ws-shared"))
-
-	got := g.ClustersFor("alice", []string{"eng"})
-	want := []graph.AccessEndpointSlice{slice("ws-shared")}
-
-	if !reflect.DeepEqual(got, want) {
-		t.Errorf("duplicate handling: got %v, want %v", got, want)
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			g := graph.New()
+			tt.setup(g)
+			got := g.ClustersFor(tt.user, tt.groups)
+			if tt.want == nil {
+				if len(got) != 0 {
+					t.Errorf("after revoke: got %v, want empty", got)
+				}
+				return
+			}
+			if !reflect.DeepEqual(got, tt.want) {
+				t.Errorf("after revoke: got %v, want %v", got, tt.want)
+			}
+		})
 	}
 }
 
-func TestGrant_idempotent(t *testing.T) {
-	g := graph.New()
-	g.Grant(graph.User("alice"), "ws-1", endpoint("ws-1"))
-	g.Grant(graph.User("alice"), "ws-1", endpoint("ws-1"))
-
-	got := g.ClustersFor("alice", nil)
-	want := []graph.AccessEndpointSlice{slice("ws-1")}
-
-	if !reflect.DeepEqual(got, want) {
-		t.Errorf("idempotent grant = %v, want %v", got, want)
-	}
-}
-
-func TestGrant_endpointUpdate(t *testing.T) {
-	g := graph.New()
-	g.Grant(graph.User("alice"), "ws-1", "https://old.example.com/clusters/ws-1")
-	// Provider observes a moved cluster; new Grant should overwrite endpoint.
-	g.Grant(graph.User("alice"), "ws-1", "https://new.example.com/clusters/ws-1")
-
-	got := g.ClustersFor("alice", nil)
-	want := []graph.AccessEndpointSlice{
-		{ClusterName: "ws-1", Endpoint: "https://new.example.com/clusters/ws-1"},
-	}
-
-	if !reflect.DeepEqual(got, want) {
-		t.Errorf("endpoint update = %v, want %v", got, want)
-	}
-}
-
-func TestRevoke_removesAccess(t *testing.T) {
-	g := graph.New()
-	g.Grant(graph.User("alice"), "ws-1", endpoint("ws-1"))
-	g.Grant(graph.User("alice"), "ws-2", endpoint("ws-2"))
-
-	g.Revoke(graph.User("alice"), "ws-1")
-
-	got := g.ClustersFor("alice", nil)
-	want := []graph.AccessEndpointSlice{slice("ws-2")}
-
-	if !reflect.DeepEqual(got, want) {
-		t.Errorf("after revoke = %v, want %v", got, want)
-	}
-}
-
-func TestRevoke_idempotent(t *testing.T) {
-	g := graph.New()
-	g.Revoke(graph.User("alice"), "ws-1") // never granted
-
-	got := g.ClustersFor("alice", nil)
-	if len(got) != 0 {
-		t.Errorf("revoke of never-granted = %v, want empty", got)
-	}
-}
-
-func TestRevoke_groupAccess(t *testing.T) {
-	g := graph.New()
-	g.Grant(graph.Group("eng"), "ws-1", endpoint("ws-1"))
-	g.Revoke(graph.Group("eng"), "ws-1")
-
-	got := g.ClustersFor("alice", []string{"eng"})
-	if len(got) != 0 {
-		t.Errorf("after group revoke = %v, want empty", got)
-	}
-}
-
-func TestForget_clusterDisappears(t *testing.T) {
+func TestForget(t *testing.T) {
 	g := graph.New()
 	g.Grant(graph.User("alice"), "ws-1", endpoint("ws-1"))
 	g.Grant(graph.Group("eng"), "ws-1", endpoint("ws-1"))
@@ -189,24 +215,32 @@ func TestForget_clusterDisappears(t *testing.T) {
 
 	g.Forget("ws-1")
 
-	// alice should still have ws-2 directly, but no ws-1.
-	if got := g.ClustersFor("alice", []string{"eng"}); !reflect.DeepEqual(got, []graph.AccessEndpointSlice{slice("ws-2")}) {
-		t.Errorf("after Forget(ws-1) alice should only see ws-2, got %v", got)
+	got := g.ClustersFor("alice", []string{"eng"})
+	want := []graph.AccessEndpointSlice{slice("ws-2")}
+	if !reflect.DeepEqual(got, want) {
+		t.Errorf("after Forget(ws-1): got %v, want %v", got, want)
 	}
 }
 
 func TestReady(t *testing.T) {
-	g := graph.New()
-	if g.Ready() {
-		t.Error("new graph reported ready")
+	tests := []struct {
+		name     string
+		setReady bool
+		want     bool
+	}{
+		{"new graph is not ready", false, false},
+		{"after SetReady is ready", true, true},
 	}
-	g.SetReady()
-	if !g.Ready() {
-		t.Error("graph not ready after SetReady")
-	}
-	// idempotent
-	g.SetReady()
-	if !g.Ready() {
-		t.Error("Ready flipped on second SetReady")
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			g := graph.New()
+			if tt.setReady {
+				g.SetReady()
+			}
+			if got := g.Ready(); got != tt.want {
+				t.Errorf("Ready() = %v, want %v", got, tt.want)
+			}
+		})
 	}
 }

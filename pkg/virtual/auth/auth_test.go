@@ -17,53 +17,6 @@ import (
 	"github.com/cnvergence/kcp-access-vw/pkg/virtual/auth"
 )
 
-// ── HeaderResolver ──────────────────────────────────────────────────
-
-func TestHeaderResolver_success(t *testing.T) {
-	r := httptest.NewRequest(http.MethodPost, "/", nil)
-	r.Header.Set("X-Remote-User", "alice")
-	r.Header.Add("X-Remote-Group", "eng")
-	r.Header.Add("X-Remote-Group", "platform")
-
-	id, err := auth.HeaderResolver{}.Resolve(context.Background(), r)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if id.Username != "alice" {
-		t.Errorf("Username = %q, want alice", id.Username)
-	}
-	if len(id.Groups) != 2 || id.Groups[0] != "eng" || id.Groups[1] != "platform" {
-		t.Errorf("Groups = %v, want [eng platform]", id.Groups)
-	}
-}
-
-func TestHeaderResolver_missingUser(t *testing.T) {
-	r := httptest.NewRequest(http.MethodPost, "/", nil)
-
-	_, err := auth.HeaderResolver{}.Resolve(context.Background(), r)
-	if err == nil {
-		t.Fatal("expected error for missing X-Remote-User")
-	}
-}
-
-func TestHeaderResolver_noGroups(t *testing.T) {
-	r := httptest.NewRequest(http.MethodPost, "/", nil)
-	r.Header.Set("X-Remote-User", "bob")
-
-	id, err := auth.HeaderResolver{}.Resolve(context.Background(), r)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if id.Username != "bob" {
-		t.Errorf("Username = %q, want bob", id.Username)
-	}
-	if len(id.Groups) != 0 {
-		t.Errorf("Groups = %v, want empty", id.Groups)
-	}
-}
-
-// ── CertResolver ────────────────────────────────────────────────────
-
 // testCA generates a self-signed CA and a client cert signed by it.
 func testCA(t *testing.T, cn string, orgs []string) (*x509.CertPool, *x509.Certificate) {
 	t.Helper()
@@ -94,7 +47,6 @@ func testCA(t *testing.T, cn string, orgs []string) (*x509.CertPool, *x509.Certi
 	pool := x509.NewCertPool()
 	pool.AddCert(caCert)
 
-	// Client cert
 	clientKey, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
 	if err != nil {
 		t.Fatal(err)
@@ -121,117 +73,187 @@ func testCA(t *testing.T, cn string, orgs []string) (*x509.CertPool, *x509.Certi
 	return pool, clientCert
 }
 
-func TestCertResolver_success(t *testing.T) {
-	pool, clientCert := testCA(t, "alice", []string{"eng", "platform"})
-
-	r := httptest.NewRequest(http.MethodPost, "/", nil)
-	r.TLS = &tls.ConnectionState{
-		PeerCertificates: []*x509.Certificate{clientCert},
-	}
-
-	resolver := &auth.CertResolver{CAPool: pool}
-	id, err := resolver.Resolve(context.Background(), r)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if id.Username != "alice" {
-		t.Errorf("Username = %q, want alice", id.Username)
-	}
-	if len(id.Groups) != 2 || id.Groups[0] != "eng" || id.Groups[1] != "platform" {
-		t.Errorf("Groups = %v, want [eng platform]", id.Groups)
-	}
-}
-
-func TestCertResolver_noTLS(t *testing.T) {
-	pool, _ := testCA(t, "alice", nil)
-	r := httptest.NewRequest(http.MethodPost, "/", nil)
-	// r.TLS is nil
-
-	resolver := &auth.CertResolver{CAPool: pool}
-	_, err := resolver.Resolve(context.Background(), r)
-	if err == nil {
-		t.Fatal("expected error for missing TLS")
-	}
-}
-
-func TestCertResolver_untrustedCA(t *testing.T) {
-	pool1, _ := testCA(t, "alice", nil)
-	_, clientCert := testCA(t, "bob", nil) // different CA
-
-	r := httptest.NewRequest(http.MethodPost, "/", nil)
-	r.TLS = &tls.ConnectionState{
-		PeerCertificates: []*x509.Certificate{clientCert},
-	}
-
-	resolver := &auth.CertResolver{CAPool: pool1}
-	_, err := resolver.Resolve(context.Background(), r)
-	if err == nil {
-		t.Fatal("expected error for untrusted cert")
-	}
-}
-
-// ── ChainResolver ───────────────────────────────────────────────────
-
-func TestChainResolver_firstWins(t *testing.T) {
-	r := httptest.NewRequest(http.MethodPost, "/", nil)
-	r.Header.Set("X-Remote-User", "alice")
-
-	chain := &auth.ChainResolver{
-		Resolvers: []auth.Resolver{
-			auth.HeaderResolver{},
+func TestHeaderResolver(t *testing.T) {
+	tests := []struct {
+		name       string
+		headers    map[string][]string
+		wantUser   string
+		wantGroups []string
+		wantErr    bool
+	}{
+		{
+			name:       "user with groups",
+			headers:    map[string][]string{"X-Remote-User": {"alice"}, "X-Remote-Group": {"eng", "platform"}},
+			wantUser:   "alice",
+			wantGroups: []string{"eng", "platform"},
+		},
+		{
+			name:    "missing user header",
+			headers: nil,
+			wantErr: true,
+		},
+		{
+			name:       "user without groups",
+			headers:    map[string][]string{"X-Remote-User": {"bob"}},
+			wantUser:   "bob",
+			wantGroups: nil,
 		},
 	}
-	id, err := chain.Resolve(context.Background(), r)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if id.Username != "alice" {
-		t.Errorf("Username = %q, want alice", id.Username)
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			r := httptest.NewRequest(http.MethodPost, "/", nil)
+			for k, vs := range tt.headers {
+				for _, v := range vs {
+					r.Header.Add(k, v)
+				}
+			}
+
+			id, err := auth.HeaderResolver{}.Resolve(context.Background(), r)
+			if tt.wantErr {
+				if err == nil {
+					t.Fatal("expected error, got nil")
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+			if id.Username != tt.wantUser {
+				t.Errorf("Username = %q, want %q", id.Username, tt.wantUser)
+			}
+			if len(id.Groups) != len(tt.wantGroups) {
+				t.Errorf("Groups = %v, want %v", id.Groups, tt.wantGroups)
+			}
+		})
 	}
 }
 
-func TestChainResolver_fallsThrough(t *testing.T) {
-	// CertResolver fails (no TLS), HeaderResolver succeeds
-	pool, _ := testCA(t, "nobody", nil)
-
-	r := httptest.NewRequest(http.MethodPost, "/", nil)
-	r.Header.Set("X-Remote-User", "bob")
-
-	chain := &auth.ChainResolver{
-		Resolvers: []auth.Resolver{
-			&auth.CertResolver{CAPool: pool},
-			auth.HeaderResolver{},
+func TestCertResolver(t *testing.T) {
+	tests := []struct {
+		name     string
+		setup    func(t *testing.T) (*auth.CertResolver, *http.Request)
+		wantUser string
+		wantErr  bool
+	}{
+		{
+			name: "valid client cert",
+			setup: func(t *testing.T) (*auth.CertResolver, *http.Request) {
+				pool, clientCert := testCA(t, "alice", []string{"eng", "platform"})
+				r := httptest.NewRequest(http.MethodPost, "/", nil)
+				r.TLS = &tls.ConnectionState{PeerCertificates: []*x509.Certificate{clientCert}}
+				return &auth.CertResolver{CAPool: pool}, r
+			},
+			wantUser: "alice",
+		},
+		{
+			name: "no TLS connection",
+			setup: func(t *testing.T) (*auth.CertResolver, *http.Request) {
+				pool, _ := testCA(t, "alice", nil)
+				r := httptest.NewRequest(http.MethodPost, "/", nil)
+				return &auth.CertResolver{CAPool: pool}, r
+			},
+			wantErr: true,
+		},
+		{
+			name: "untrusted CA",
+			setup: func(t *testing.T) (*auth.CertResolver, *http.Request) {
+				pool1, _ := testCA(t, "alice", nil)
+				_, clientCert := testCA(t, "bob", nil) // different CA
+				r := httptest.NewRequest(http.MethodPost, "/", nil)
+				r.TLS = &tls.ConnectionState{PeerCertificates: []*x509.Certificate{clientCert}}
+				return &auth.CertResolver{CAPool: pool1}, r
+			},
+			wantErr: true,
 		},
 	}
-	id, err := chain.Resolve(context.Background(), r)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if id.Username != "bob" {
-		t.Errorf("Username = %q, want bob", id.Username)
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			resolver, r := tt.setup(t)
+			id, err := resolver.Resolve(context.Background(), r)
+			if tt.wantErr {
+				if err == nil {
+					t.Fatal("expected error, got nil")
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+			if id.Username != tt.wantUser {
+				t.Errorf("Username = %q, want %q", id.Username, tt.wantUser)
+			}
+		})
 	}
 }
 
-func TestChainResolver_allFail(t *testing.T) {
-	r := httptest.NewRequest(http.MethodPost, "/", nil)
-	// no headers, no TLS, no token
-
-	chain := &auth.ChainResolver{
-		Resolvers: []auth.Resolver{
-			auth.HeaderResolver{},
+func TestChainResolver(t *testing.T) {
+	tests := []struct {
+		name     string
+		setup    func(t *testing.T) (*auth.ChainResolver, *http.Request)
+		wantUser string
+		wantErr  bool
+	}{
+		{
+			name: "first resolver wins",
+			setup: func(t *testing.T) (*auth.ChainResolver, *http.Request) {
+				r := httptest.NewRequest(http.MethodPost, "/", nil)
+				r.Header.Set("X-Remote-User", "alice")
+				return &auth.ChainResolver{Resolvers: []auth.Resolver{auth.HeaderResolver{}}}, r
+			},
+			wantUser: "alice",
+		},
+		{
+			name: "falls through to next resolver",
+			setup: func(t *testing.T) (*auth.ChainResolver, *http.Request) {
+				pool, _ := testCA(t, "nobody", nil)
+				r := httptest.NewRequest(http.MethodPost, "/", nil)
+				r.Header.Set("X-Remote-User", "bob")
+				chain := &auth.ChainResolver{
+					Resolvers: []auth.Resolver{
+						&auth.CertResolver{CAPool: pool}, // fails: no TLS
+						auth.HeaderResolver{},             // succeeds
+					},
+				}
+				return chain, r
+			},
+			wantUser: "bob",
+		},
+		{
+			name: "all resolvers fail",
+			setup: func(t *testing.T) (*auth.ChainResolver, *http.Request) {
+				r := httptest.NewRequest(http.MethodPost, "/", nil)
+				return &auth.ChainResolver{Resolvers: []auth.Resolver{auth.HeaderResolver{}}}, r
+			},
+			wantErr: true,
+		},
+		{
+			name: "empty chain",
+			setup: func(t *testing.T) (*auth.ChainResolver, *http.Request) {
+				r := httptest.NewRequest(http.MethodPost, "/", nil)
+				return &auth.ChainResolver{}, r
+			},
+			wantErr: true,
 		},
 	}
-	_, err := chain.Resolve(context.Background(), r)
-	if err == nil {
-		t.Fatal("expected error when all resolvers fail")
-	}
-}
 
-func TestChainResolver_empty(t *testing.T) {
-	r := httptest.NewRequest(http.MethodPost, "/", nil)
-	chain := &auth.ChainResolver{}
-	_, err := chain.Resolve(context.Background(), r)
-	if err == nil {
-		t.Fatal("expected error for empty chain")
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			chain, r := tt.setup(t)
+			id, err := chain.Resolve(context.Background(), r)
+			if tt.wantErr {
+				if err == nil {
+					t.Fatal("expected error, got nil")
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+			if id.Username != tt.wantUser {
+				t.Errorf("Username = %q, want %q", id.Username, tt.wantUser)
+			}
+		})
 	}
 }

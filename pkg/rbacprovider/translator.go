@@ -34,17 +34,12 @@ import (
 	"github.com/cnvergence/kcp-access-vw/pkg/graph"
 )
 
-// bindingKey uniquely identifies a binding (CRB or RB) across all
-// kcp shards. Namespace is empty for ClusterRoleBindings.
 type bindingKey struct {
 	cluster   graph.LogicalCluster
 	namespace string
 	name      string
 }
 
-// bindingState records what a single Apply call established.
-// The translator stores one of these per known binding so it can
-// compute diffs on the next Apply and undo them on Remove.
 type bindingState struct {
 	subjects []graph.Subject
 	endpoint string
@@ -140,7 +135,6 @@ func (t *Translator) ForgetCluster(cluster graph.LogicalCluster) {
 	t.g.Forget(cluster)
 }
 
-// apply is the shared implementation for both binding kinds.
 func (t *Translator) apply(key bindingKey, subjects []graph.Subject, endpoint string) {
 	t.mu.Lock()
 	defer t.mu.Unlock()
@@ -171,14 +165,12 @@ func (t *Translator) apply(key bindingKey, subjects []graph.Subject, endpoint st
 	}
 }
 
-// remove unwinds every reference contributed by key.
 func (t *Translator) remove(key bindingKey) {
 	t.mu.Lock()
 	defer t.mu.Unlock()
 	t.removeLocked(key)
 }
 
-// removeLocked is the inner remove; caller holds t.mu.
 func (t *Translator) removeLocked(key bindingKey) {
 	state, ok := t.bindings[key]
 	if !ok {
@@ -190,8 +182,6 @@ func (t *Translator) removeLocked(key bindingKey) {
 	}
 }
 
-// incrementRef records that key contributes to (s, c) and Grants on
-// the graph if this is the first contributor.
 func (t *Translator) incrementRef(s graph.Subject, c graph.LogicalCluster, endpoint string, key bindingKey) {
 	if t.refs[s] == nil {
 		t.refs[s] = make(map[graph.LogicalCluster]map[bindingKey]struct{})
@@ -206,8 +196,6 @@ func (t *Translator) incrementRef(s graph.Subject, c graph.LogicalCluster, endpo
 	}
 }
 
-// decrementRef removes key's contribution to (s, c) and Revokes on
-// the graph if no contributors remain.
 func (t *Translator) decrementRef(s graph.Subject, c graph.LogicalCluster, key bindingKey) {
 	if t.refs[s] == nil || t.refs[s][c] == nil {
 		return
@@ -222,10 +210,6 @@ func (t *Translator) decrementRef(s graph.Subject, c graph.LogicalCluster, key b
 	}
 }
 
-// translateSubjects converts a slice of rbacv1.Subjects into graph
-// Subjects. Unknown Kinds are dropped; duplicates within the slice
-// are dropped as well (a binding that lists the same User twice
-// should only count once).
 func translateSubjects(in []rbacv1.Subject) []graph.Subject {
 	seen := make(map[graph.Subject]struct{})
 	out := make([]graph.Subject, 0, len(in))
@@ -243,15 +227,6 @@ func translateSubjects(in []rbacv1.Subject) []graph.Subject {
 	return out
 }
 
-// translateSubject converts a single rbacv1.Subject. Returns the
-// graph Subject and true on success, or false if the Kind is
-// unrecognised.
-//
-// ServiceAccounts are flattened to a User whose Name carries the
-// canonical "system:serviceaccount:<namespace>:<name>" string.
-// X-Remote-User from kcp's FrontProxy carries SA callers in the same
-// shape, so the graph can find the right edge with a single User
-// lookup at query time.
 func translateSubject(rs rbacv1.Subject) (graph.Subject, bool) {
 	switch rs.Kind {
 	case rbacv1.UserKind:
@@ -265,7 +240,6 @@ func translateSubject(rs rbacv1.Subject) (graph.Subject, bool) {
 	}
 }
 
-// subjectSet builds a set of subjects for fast diff computation.
 func subjectSet(ss []graph.Subject) map[graph.Subject]struct{} {
 	out := make(map[graph.Subject]struct{}, len(ss))
 	for _, s := range ss {

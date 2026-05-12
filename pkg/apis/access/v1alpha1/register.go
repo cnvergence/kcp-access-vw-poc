@@ -34,8 +34,6 @@ var (
 	AddToScheme = SchemeBuilder.AddToScheme
 )
 
-// addKnownTypes is the actual registration function. Kept private
-// because callers should always go through SchemeBuilder/AddToScheme.
 func addKnownTypes(scheme *runtime.Scheme) error {
 	scheme.AddKnownTypes(SchemeGroupVersion,
 		&SelfClusterAccessReview{},
