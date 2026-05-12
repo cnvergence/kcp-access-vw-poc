@@ -6,12 +6,12 @@
 
 KUBECONFIG       ?= $(HOME)/.kcp/admin.kubeconfig
 ENDPOINT_BASE    ?= https://localhost:6443/clusters/
-ADDR             ?= 9099
+ADDR             ?= :9099
 APIEXPORT_SLICE  ?= access.kcp.io
 EXPORT_PATH      ?= root
 TEST_WORKSPACE   ?= test-workspace
 
-SCAR_URL = http://localhost:$(ADDR)/services/access-virtual-workspace/apis/access.kcp.io/v1alpha1/selfclusteraccessreviews
+SCAR_URL = http://localhost$(ADDR)/services/access-virtual-workspace/apis/access.kcp.io/v1alpha1/selfclusteraccessreviews
 
 .PHONY: help
 help: ## Show available targets
@@ -125,7 +125,7 @@ scar-multi: ## Issue a SCAR as alice in groups eng+platform
 
 .PHONY: healthz
 healthz: ## Hit /healthz
-	@curl -sf http://localhost:$(ADDR)/healthz; echo
+	@curl -sf http://localhost$(ADDR)/healthz; echo
 
 # ── MCP demo (manual scoping) ────────────────────────────────────────────────
 
