@@ -1,0 +1,70 @@
+# Sample RBAC bindings for testing the Access VW.
+#
+# Apply with `make seed-rbac` after the test workspace has bound the
+# access.kcp.io APIExport. Identities mirror the demo-mode seed data
+# so the same curl commands work in both modes.
+#
+# These bindings reference a ClusterRole that exists in every kcp
+# workspace: the well-known `view` role. In the current MVP the
+# Access VW doesn't actually inspect the role's verbs (any binding
+# counts as "view"), so swap to a custom role only if you want to
+# exercise the future verb-filtering path.
+#
+# Identities seeded:
+#   alice                                            — direct user binding
+#   group:eng                                        — group binding
+#   group:platform                                   — group binding
+#   system:serviceaccount:default:test-sa            — service-account binding
+#
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: access-vw-test--alice-viewer
+subjects:
+  - kind: User
+    name: alice
+    apiGroup: rbac.authorization.k8s.io
+roleRef:
+  kind: ClusterRole
+  name: view
+  apiGroup: rbac.authorization.k8s.io
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: access-vw-test--eng-viewer
+subjects:
+  - kind: Group
+    name: eng
+    apiGroup: rbac.authorization.k8s.io
+roleRef:
+  kind: ClusterRole
+  name: view
+  apiGroup: rbac.authorization.k8s.io
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: access-vw-test--platform-viewer
+subjects:
+  - kind: Group
+    name: platform
+    apiGroup: rbac.authorization.k8s.io
+roleRef:
+  kind: ClusterRole
+  name: view
+  apiGroup: rbac.authorization.k8s.io
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: access-vw-test--test-sa-viewer
+subjects:
+  - kind: ServiceAccount
+    name: test-sa
+    namespace: default
+roleRef:
+  kind: ClusterRole
+  name: view
+  apiGroup: rbac.authorization.k8s.io
