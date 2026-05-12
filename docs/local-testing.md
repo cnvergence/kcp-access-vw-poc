@@ -34,12 +34,12 @@ Verify:
 make show-apiexport
 ```
 
-You should see one `APIExport` named `access.kcp.io`, one `APIResourceSchema`, and — within a few seconds — a generated `APIExportEndpointSlice` named `access.kcp.io`. If the slice doesn't exist yet and you try `make run-kcp`, the server will exit with a "construct apiexport provider" error; wait a moment and retry.
+You should see one `APIExport` named `access.kcp.io`, one `APIResourceSchema`, and — within a few seconds — a generated `APIExportEndpointSlice` named `access.kcp.io`. If the slice doesn't exist yet and you try `make run-access-vw`, the server will exit with a "construct apiexport provider" error; wait a moment and retry.
 
 ## 2. Build and run the Access VW
 
 ```sh
-make run-kcp
+make run-access-vw
 ```
 
 This runs in multi-shard mode with `-trust-headers` enabled so curl can authenticate by setting `X-Remote-User` / `X-Remote-Group` headers. Leave this terminal running.
@@ -161,7 +161,7 @@ Standard inner loop:
 # edit pkg/...
 make build
 # Ctrl-C the running access-vw
-make run-kcp
+make run-access-vw
 ```
 
 Tests:
@@ -176,7 +176,7 @@ make vet
 To exercise the `TokenReviewResolver` path instead of trusted headers:
 
 ```sh
-make run-kcp-tokenauth
+make run-access-vw-tokenauth
 ```
 
 Then POST with `Authorization: Bearer <token>`:
@@ -189,7 +189,7 @@ curl -sf -X POST \
   http://localhost:9099/services/access-virtual-workspace/apis/access.kcp.io/v1alpha1/selfclusteraccessreviews | jq
 ```
 
-> **Note:** The `scar-alice` / `scar-eng` smoke targets use `X-Remote-User` headers and only work with `make run-kcp` (trusted headers mode).
+> **Note:** The `scar-alice` / `scar-eng` smoke targets use `X-Remote-User` headers and only work with `make run-access-vw` (trusted headers mode).
 
 ## MCP demo (manual scoping)
 
@@ -202,7 +202,7 @@ This proves SCAR's output is consumable by a real MCP server end-to-end. A scope
 **1. Start the Access VW with bearer-token auth:**
 
 ```sh
-make run-kcp-tokenauth
+make run-access-vw-tokenauth
 ```
 
 **2. Generate the scoped kubeconfig:**

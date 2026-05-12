@@ -49,7 +49,7 @@ Permission-aware workspace discovery for [kcp](https://www.kcp.io/). Implements 
 - Go 1.25+
 - kcp running locally (`kcp start`)
 - `kubectl` with the [`kubectl-ws` plugin](https://github.com/kcp-dev/kcp)
-- `jq` (for smoke tests)
+- `jq` (for reading JSON responses)
 
 ### Build
 
@@ -60,20 +60,22 @@ make build    # produces bin/access-vw and bin/scar-to-kubeconfig
 ### Local dev flow
 
 ```sh
-# 1. Install the APIExport in root
+# 1. Start kcp
+kcp start
+
+# 2. Install the APIExport in root
 make install-apiexport
 
-# 2. Start the server (trusted headers mode for smoke tests)
-make run-kcp
-
-# 3. In another terminal: create a test workspace and seed RBAC
+# 3. Create a test workspace and seed RBAC
 make create-test-workspace
 make seed-rbac
 
-# 4. Query SCAR
-make scar-alice        # direct user
-make scar-eng          # group member
-make scar-multi        # user in multiple groups
+# 4. Start the server (trusted headers mode)
+make run-access-vw
+
+# 5. Query SCAR (in another terminal)
+curl -s -X POST -H 'X-Remote-User: alice' \
+  http://localhost:9099/services/access-virtual-workspace/apis/access.kcp.io/v1alpha1/selfclusteraccessreviews | jq
 ```
 
 See [`docs/local-testing.md`](docs/local-testing.md) for the full walkthrough.
@@ -84,7 +86,7 @@ Proves end-to-end that an MCP client sees only the workspaces SCAR authorizes:
 
 ```sh
 # 1. Start with bearer-token auth (no trusted headers)
-make run-kcp-tokenauth
+make run-access-vw-tokenauth
 
 # 2. Generate a scoped kubeconfig from SCAR
 make mcp-demo

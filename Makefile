@@ -2,7 +2,7 @@
 #
 # Default values assume a local kcp launched with `kcp start` from
 # this checkout. Override on the command line, e.g.
-#   make run-kcp KUBECONFIG=/path/to/admin.kubeconfig
+#   make run-access-vw KUBECONFIG=/path/to/admin.kubeconfig
 
 KUBECONFIG       ?= $(HOME)/.kcp/admin.kubeconfig
 ENDPOINT_BASE    ?= https://localhost:6443/clusters/
@@ -85,8 +85,8 @@ cleanup: ## Remove all test resources: RBAC, test workspace, APIExport
 
 # ── Run against kcp ──────────────────────────────────────────────────
 
-.PHONY: run-kcp
-run-kcp: build ## Run against kcp with trusted headers (for smoke tests with X-Remote-User)
+.PHONY: run-access-vw
+run-access-vw: build ## Run against kcp with trusted headers (for smoke tests with X-Remote-User)
 	./bin/access-vw \
 		-addr $(ADDR) \
 		-kubeconfig $(KUBECONFIG) \
@@ -94,8 +94,8 @@ run-kcp: build ## Run against kcp with trusted headers (for smoke tests with X-R
 		-endpoint-base $(ENDPOINT_BASE) \
 		-trust-headers
 
-.PHONY: run-kcp-tokenauth
-run-kcp-tokenauth: build ## Run against kcp with bearer-token auth (for MCP demo)
+.PHONY: run-access-vw-tokenauth
+run-access-vw-tokenauth: build ## Run against kcp with bearer-token auth (for MCP demo)
 	./bin/access-vw \
 		-addr $(ADDR) \
 		-kubeconfig $(KUBECONFIG) \
