@@ -8,17 +8,17 @@ Permission-aware workspace discovery for [kcp](https://www.kcp.io/). Implements 
 ┌──────────────┐         ┌──────────────────┐         ┌─────────┐
 │  MCP client  │◀────────│  MCP server      │◀────────│  SCAR   │
 │  (Copilot,   │  scoped │  (kube-mcp)      │  scoped │  HTTP   │
-│   Claude)    │  tools  │                  │  config  │  API    │
+│   Claude)    │  tools  │                  │  config │  API    │
 └──────────────┘         └──────────────────┘         └────┬────┘
-                                                          │
-                                              ┌───────────┴───────────┐
-                                              │   In-memory RBAC      │
-                                              │   permission graph    │
-                                              │                       │
-                                              │  watches CRBs/RBs     │
-                                              │  across all bound     │
-                                              │  workspaces           │
-                                              └───────────────────────┘
+                                                           │
+                                                ┌──────────┴───────────┐
+                                                │   In-memory RBAC     │
+                                                │   permission graph   │
+                                                │                      │
+                                                │  watches CRBs/RBs    │
+                                                │  across all bound    │
+                                                │  workspaces          │
+                                                └──────────────────────┘
 ```
 
 1. **Indexing:** The server watches `ClusterRoleBindings` and `RoleBindings` across every kcp workspace that has bound the `access.kcp.io` APIExport. These bindings are translated into an in-memory permission graph mapping subjects (users, groups, service accounts) to logical clusters.
