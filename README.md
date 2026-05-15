@@ -80,9 +80,20 @@ curl -s -X POST -H 'X-Remote-User: alice' \
 
 See [`docs/local-testing.md`](docs/local-testing.md) for the full walkthrough.
 
-### MCP demo
+### Kind-based setup (full stack)
 
-Proves end-to-end that an MCP client sees only the workspaces SCAR authorizes:
+Deploys the complete ADR 007 architecture into a local Kind cluster — kcp, Envoy AI Gateway, Keycloak (OIDC), access-vw, and kubernetes-mcp-server:
+
+```sh
+make kind-setup     # ~5 min, creates everything
+make kind-teardown  # delete the cluster
+```
+
+See [`docs/kind-testing.md`](docs/kind-testing.md) for the full walkthrough and architecture details.
+
+### MCP demo (lightweight)
+
+Proves end-to-end that an MCP client sees only the workspaces SCAR authorizes, using host-local `kcp start` (no Kind):
 
 ```sh
 # 1. Start with bearer-token auth (no trusted headers)
@@ -100,7 +111,8 @@ kubernetes-mcp-server --kubeconfig=scar.kubeconfig --cluster-provider=kcp
 ### Cleanup
 
 ```sh
-make cleanup    # removes RBAC, test workspace, and APIExport
+make cleanup         # removes RBAC, test workspace, and APIExport (local kcp)
+make kind-teardown   # deletes the Kind cluster
 ```
 
 ## SCAR API
