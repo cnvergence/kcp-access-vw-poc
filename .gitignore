@@ -29,6 +29,8 @@ go.work.sum
 bin/
 # Generated kubeconfig from SCAR demo
 scar.kubeconfig
+# Kind setup generated files
+hack/kind/admin.kubeconfig
 .github
 .claude
 

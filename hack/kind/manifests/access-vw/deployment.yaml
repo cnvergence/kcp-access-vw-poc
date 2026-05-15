@@ -1,0 +1,64 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: access-vw
+  namespace: kcp-system
+  labels:
+    app: access-vw
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: access-vw
+  template:
+    metadata:
+      labels:
+        app: access-vw
+    spec:
+      containers:
+        - name: access-vw
+          image: localhost/access-vw:local
+          imagePullPolicy: Never
+          args:
+            - -addr=:9099
+            - -kubeconfig=/etc/kcp/admin.kubeconfig
+            - -trust-headers
+          ports:
+            - containerPort: 9099
+              name: http
+          readinessProbe:
+            httpGet:
+              path: /healthz
+              port: 9099
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          resources:
+            limits:
+              cpu: 200m
+              memory: 256Mi
+            requests:
+              cpu: 100m
+              memory: 128Mi
+          volumeMounts:
+            - name: kcp-kubeconfig
+              mountPath: /etc/kcp
+              readOnly: true
+      volumes:
+        - name: kcp-kubeconfig
+          secret:
+            secretName: access-vw-kubeconfig
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: access-vw
+  namespace: kcp-system
+  labels:
+    app: access-vw
+spec:
+  selector:
+    app: access-vw
+  ports:
+    - port: 9099
+      targetPort: 9099
+      name: http

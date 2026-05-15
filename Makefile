@@ -149,3 +149,21 @@ mcp-demo: build ## Generate a scoped kubeconfig from SCAR for kubernetes-mcp-ser
 	echo "  kubernetes-mcp-server --kubeconfig=$(MCP_KUBECONFIG) --cluster-provider=kcp"; \
 	echo ""; \
 	echo "Then connect your MCP client (e.g. Claude Code) to that server."
+
+# ── Kind-based setup ─────────────────────────────────────────────────
+
+.PHONY: kind-setup
+kind-setup: ## Create Kind cluster with full kcp + MCP stack
+	./hack/kind/setup.sh
+
+.PHONY: kind-teardown
+kind-teardown: ## Delete the Kind cluster
+	./hack/kind/teardown.sh
+
+.PHONY: kind-build
+kind-build: ## Build access-vw image and load into Kind
+	./hack/kind/scripts/build-images.sh
+
+.PHONY: docker-build
+docker-build: ## Build access-vw Docker image
+	docker build -t localhost/access-vw:local .

@@ -1,0 +1,36 @@
+# kubernetes-mcp-server Helm values.
+# Chart: oci://ghcr.io/containers/charts/kubernetes-mcp-server
+image:
+  pullPolicy: IfNotPresent
+
+ingress:
+  enabled: false
+
+service:
+  type: ClusterIP
+  port: 8080
+
+extraArgs:
+  - "--kubeconfig=/etc/kcp/kubeconfig"
+  - "--port=8080"
+  - "--toolsets=core,config,kcp"
+  - "--cluster-provider=kcp"
+  - "--stateless"
+
+extraVolumes:
+  - name: kcp-kubeconfig
+    secret:
+      secretName: mcp-server-kubeconfig
+
+extraVolumeMounts:
+  - name: kcp-kubeconfig
+    mountPath: /etc/kcp
+    readOnly: true
+
+resources:
+  limits:
+    cpu: 200m
+    memory: 256Mi
+  requests:
+    cpu: 100m
+    memory: 128Mi

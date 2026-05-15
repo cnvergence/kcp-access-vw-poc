@@ -1,0 +1,24 @@
+# FrontProxy CR for kcp-operator.
+# Based on kcp-dev/kcp/contrib/tilt/ patterns.
+apiVersion: operator.kcp.io/v1alpha1
+kind: FrontProxy
+metadata:
+  name: frontproxy
+  namespace: kcp-system
+spec:
+  image:
+    repository: ghcr.io/kcp-dev/kcp
+    tag: latest
+  replicas: 1
+  external:
+    hostname: kcp.localhost
+    port: 8443
+  certificates:
+    issuerRef:
+      group: cert-manager.io
+      kind: Issuer
+      name: selfsigned
+  additionalPathMappings:
+    - path: /services/access-virtual-workspace
+      backend:
+        url: http://access-vw.kcp-system.svc.cluster.local:9099

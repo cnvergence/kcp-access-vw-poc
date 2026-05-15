@@ -1,0 +1,73 @@
+# MCPRoute for Envoy AI Gateway.
+# Routes MCP traffic to kubernetes-mcp-server with Keycloak OAuth.
+# Based on envoyproxy/ai-gateway/examples/mcp/mcp_oauth_keycloak.yaml
+---
+apiVersion: aigateway.envoyproxy.io/v1beta1
+kind: MCPRoute
+metadata:
+  name: kcp-mcp
+  namespace: default
+spec:
+  parentRefs:
+    - name: kcp-mcp-gateway
+      kind: Gateway
+      group: gateway.networking.k8s.io
+  securityPolicy:
+    oauth:
+      issuer: "http://keycloak.keycloak.svc.cluster.local/realms/welcome"
+      jwks:
+        remoteJWKS:
+          uri: http://keycloak.keycloak.svc.cluster.local/realms/welcome/protocol/openid-connect/certs
+      protectedResourceMetadata:
+        resource: "https://localhost:8443/mcp"
+        scopesSupported:
+          - openid
+          - profile
+          - email
+  backendRefs:
+    - name: kubernetes-mcp-server
+      kind: Service
+      port: 8080
+---
+# Gateway for MCP traffic
+apiVersion: gateway.networking.k8s.io/v1
+kind: GatewayClass
+metadata:
+  name: kcp-mcp
+spec:
+  controllerName: gateway.envoyproxy.io/gatewayclass-controller
+---
+apiVersion: gateway.networking.k8s.io/v1
+kind: Gateway
+metadata:
+  name: kcp-mcp-gateway
+  namespace: default
+spec:
+  gatewayClassName: kcp-mcp
+  listeners:
+    - name: mcp
+      protocol: HTTP
+      port: 1975
+  infrastructure:
+    parametersRef:
+      group: gateway.envoyproxy.io
+      kind: EnvoyProxy
+      name: kcp-mcp-proxy
+---
+apiVersion: gateway.envoyproxy.io/v1alpha1
+kind: EnvoyProxy
+metadata:
+  name: kcp-mcp-proxy
+  namespace: default
+spec:
+  logging:
+    level:
+      default: info
+  bootstrap:
+    type: Merge
+    value: |-
+      admin:
+        address:
+          socket_address:
+            address: 127.0.0.1
+            port_value: 9901
