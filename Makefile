@@ -123,6 +123,14 @@ scar-multi: ## Issue a SCAR as alice in groups eng+platform
 		-H 'X-Remote-Group: platform' \
 		$(SCAR_URL) | jq
 
+.PHONY: demo
+demo: ## Run RBAC enforcement showcase (happy path + unauthorized + dynamic grant/revoke)
+	./hack/demo.sh
+
+.PHONY: demo-safe
+demo-safe: ## Run RBAC showcase without modifying RBAC (skip dynamic grant/revoke)
+	./hack/demo.sh --no-dynamic
+
 .PHONY: healthz
 healthz: ## Hit /healthz
 	@curl -sf http://localhost$(ADDR)/healthz; echo

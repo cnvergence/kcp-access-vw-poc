@@ -131,6 +131,15 @@ curl -sf -X POST -H 'X-Remote-User: nobody' \
   http://localhost:9099/services/access-virtual-workspace/apis/access.kcp.io/v1alpha1/selfclusteraccessreviews | jq
 ```
 
+### Run the full demo
+
+The demo script walks through eight scenarios — authorized users, unauthorized users, group access, and dynamic grant/revoke — with pass/fail assertions:
+
+```sh
+make demo           # full showcase (modifies and restores RBAC)
+make demo-safe      # read-only (skips dynamic grant/revoke)
+```
+
 ### Debug endpoint
 
 Check the current graph state:

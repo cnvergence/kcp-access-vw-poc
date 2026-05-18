@@ -73,10 +73,11 @@ make seed-rbac
 # 4. Start the server (trusted headers mode)
 make run-access-vw
 
-# 5. Query SCAR (in another terminal)
-curl -s -X POST -H 'X-Remote-User: alice' \
-  http://localhost:9099/services/access-virtual-workspace/apis/access.kcp.io/v1alpha1/selfclusteraccessreviews | jq
+# 5. Run the RBAC enforcement demo (in another terminal)
+make demo
 ```
+
+The demo walks through authorized users, unauthorized users, group access, and dynamic grant/revoke — with pass/fail assertions for each scenario.
 
 See [`docs/local-testing.md`](docs/local-testing.md) for the full walkthrough.
 
