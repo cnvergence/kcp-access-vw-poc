@@ -21,7 +21,7 @@ import (
 	"time"
 
 	clientcmdapi "k8s.io/client-go/tools/clientcmd/api"
-	"sigs.k8s.io/yaml"
+	"k8s.io/client-go/tools/clientcmd"
 )
 
 type scarResponse struct {
@@ -61,9 +61,9 @@ func main() {
 
 	kubeconfig := buildKubeconfig(clusters, *token, *insecure)
 
-	data, err := yaml.Marshal(kubeconfig)
+	data, err := clientcmd.Write(*kubeconfig)
 	if err != nil {
-		log.Fatalf("marshal kubeconfig: %v", err)
+		log.Fatalf("serialize kubeconfig: %v", err)
 	}
 
 	if err := os.WriteFile(*output, data, 0600); err != nil {

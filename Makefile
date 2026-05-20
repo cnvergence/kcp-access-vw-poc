@@ -1,5 +1,3 @@
-# kcp-access-vw — common development targets.
-#
 # Default values assume a local kcp launched with `kcp start` from
 # this checkout. Override on the command line, e.g.
 #   make run-access-vw KUBECONFIG=/path/to/admin.kubeconfig
@@ -9,7 +7,8 @@ ENDPOINT_BASE    ?= https://localhost:6443/clusters/
 ADDR             ?= :9099
 APIEXPORT_SLICE  ?= access.kcp.io
 EXPORT_PATH      ?= root
-TEST_WORKSPACE   ?= test-workspace
+WS_ALICE         ?= workspace-alice
+WS_BOB           ?= workspace-bob
 
 SCAR_URL = http://localhost$(ADDR)/services/access-virtual-workspace/apis/access.kcp.io/v1alpha1/selfclusteraccessreviews
 
@@ -17,7 +16,7 @@ SCAR_URL = http://localhost$(ADDR)/services/access-virtual-workspace/apis/access
 help: ## Show available targets
 	@awk 'BEGIN {FS = ":.*?## "} /^[a-zA-Z_-]+:.*?## / {printf "  \033[36m%-24s\033[0m %s\n", $$1, $$2}' $(MAKEFILE_LIST)
 
-# ── Build & test ─────────────────────────────────────────────────────
+#Build & test
 
 .PHONY: build
 build: ## Build the access-vw and scar-to-kubeconfig binaries into bin/
@@ -40,8 +39,7 @@ tidy: ## Sync go.mod / go.sum
 clean: ## Remove build artifacts
 	rm -rf bin/
 
-# ── kcp setup ────────────────────────────────────────────────────────
-#
+#kcp setup
 # Run these against the workspace where the access VW's APIExport
 # should live (usually root or a system-adjacent workspace).
 
@@ -58,27 +56,35 @@ show-apiexport: ## Show the APIExport, ARS and generated EndpointSlice
 	kubectl get apiresourceschemas.apis.kcp.io
 	kubectl get apiexportendpointslices.apis.kcp.io 2>/dev/null || true
 
-# ── Test workspace setup ─────────────────────────────────────────────
+#Test workspace setup
 
-.PHONY: create-test-workspace
-create-test-workspace: ## Create $(TEST_WORKSPACE) under $(EXPORT_PATH) and bind the APIExport
+.PHONY: create-test-workspaces
+create-test-workspaces: ## Create workspace-alice and workspace-bob, bind APIExport in each
 	kubectl ws use $(EXPORT_PATH)
-	-kubectl ws create $(TEST_WORKSPACE)
-	kubectl ws use $(TEST_WORKSPACE)
+	-kubectl ws create $(WS_ALICE)
+	kubectl ws use $(WS_ALICE)
+	kubectl apply -f config/examples/apibinding-consumer.yaml
+	kubectl ws use $(EXPORT_PATH)
+	-kubectl ws create $(WS_BOB)
+	kubectl ws use $(WS_BOB)
 	kubectl apply -f config/examples/apibinding-consumer.yaml
 	kubectl ws use $(EXPORT_PATH)
 
 .PHONY: seed-rbac
-seed-rbac: ## Apply sample CRBs (alice / eng / platform) to the current workspace
-	kubectl ws use $(EXPORT_PATH)/$(TEST_WORKSPACE)
-	kubectl apply -f hack/seed-rbac.yaml
+seed-rbac: ## Seed RBAC: alice-sa in workspace-alice, bob-sa in workspace-bob
+	kubectl ws use $(EXPORT_PATH)/$(WS_ALICE)
+	kubectl apply -f config/rbac/seed-rbac-alice.yaml
+	kubectl ws use $(EXPORT_PATH)/$(WS_BOB)
+	kubectl apply -f config/rbac/seed-rbac-bob.yaml
 	kubectl ws use $(EXPORT_PATH)
 
 
 .PHONY: cleanup
-cleanup: ## Remove all test resources: RBAC, test workspace, APIExport
-	-kubectl ws use $(EXPORT_PATH)/$(TEST_WORKSPACE) && kubectl delete -f hack/seed-rbac.yaml
-	-kubectl ws use $(EXPORT_PATH) && kubectl ws delete $(TEST_WORKSPACE)
+cleanup: ## Remove all test resources: RBAC, workspaces, APIExport
+	-kubectl ws use $(EXPORT_PATH)/$(WS_ALICE) && kubectl delete -f config/rbac/seed-rbac-alice.yaml
+	-kubectl ws use $(EXPORT_PATH)/$(WS_BOB) && kubectl delete -f config/rbac/seed-rbac-bob.yaml
+	-kubectl ws use $(EXPORT_PATH) && kubectl ws delete $(WS_ALICE)
+	-kubectl ws use $(EXPORT_PATH) && kubectl ws delete $(WS_BOB)
 	-kubectl ws use $(EXPORT_PATH) && kubectl delete -f config/apiexport/apiexport.yaml
 	-kubectl ws use $(EXPORT_PATH) && kubectl delete -f config/apiexport/apiresourceschema.yaml
 	kubectl ws use $(EXPORT_PATH)
@@ -102,7 +108,7 @@ run-access-vw-tokenauth: build ## Run against kcp with bearer-token auth (for MC
 		-apiexport-endpointslice $(APIEXPORT_SLICE) \
 		-endpoint-base $(ENDPOINT_BASE)
 
-# ── Smoke tests ──────────────────────────────────────────────────────
+#Smoke tests
 
 .PHONY: scar-alice
 scar-alice: ## Issue a SCAR as user=alice (requires -trust-headers)
@@ -123,43 +129,34 @@ scar-multi: ## Issue a SCAR as alice in groups eng+platform
 		-H 'X-Remote-Group: platform' \
 		$(SCAR_URL) | jq
 
-.PHONY: demo
-demo: ## Run RBAC enforcement showcase (happy path + unauthorized + dynamic grant/revoke)
-	./hack/demo.sh
-
-.PHONY: demo-safe
-demo-safe: ## Run RBAC showcase without modifying RBAC (skip dynamic grant/revoke)
-	./hack/demo.sh --no-dynamic
-
 .PHONY: healthz
 healthz: ## Hit /healthz
 	@curl -sf http://localhost$(ADDR)/healthz; echo
 
-# ── MCP demo (manual scoping) ────────────────────────────────────────────────
-
-TOKEN         ?=
-MCP_KUBECONFIG ?= scar.kubeconfig
+#MCP demo
 
 .PHONY: mcp-demo
-mcp-demo: build ## Generate a scoped kubeconfig from SCAR for kubernetes-mcp-server
-	@TOKEN_VAL="$(TOKEN)"; \
+mcp-demo: build ## Generate scoped alice.kubeconfig for MCP demo
+	@echo "==> Generating alice.kubeconfig (workspace-alice only)..."; \
+	kubectl ws use $(EXPORT_PATH)/$(WS_ALICE) >/dev/null 2>&1 || true; \
+	TOKEN_VAL=$$(kubectl create token alice-sa --namespace=default --duration=1h 2>/dev/null); \
 	if [ -z "$$TOKEN_VAL" ]; then \
-		kubectl ws use $(EXPORT_PATH)/$(TEST_WORKSPACE) >/dev/null 2>&1 || true; \
-		TOKEN_VAL=$$(kubectl create token test-sa --namespace=default --duration=1h 2>/dev/null); \
-	fi; \
-	if [ -z "$$TOKEN_VAL" ]; then \
-		echo "error: could not obtain a token. Pass TOKEN=... or ensure test-sa exists (make seed-rbac)." >&2; \
+		echo "error: could not obtain token for alice-sa. Run 'make seed-rbac' first." >&2; \
 		exit 1; \
 	fi; \
-	./bin/scar-to-kubeconfig -scar-url "$(SCAR_URL)" -token "$$TOKEN_VAL" -insecure -output $(MCP_KUBECONFIG); \
-	echo ""; \
-	echo "Next steps:"; \
-	echo "  kubernetes-mcp-server --kubeconfig=$(MCP_KUBECONFIG) --cluster-provider=kcp"; \
-	echo ""; \
-	echo "Then connect your MCP client (e.g. Claude Code) to that server."
+	./bin/scar-to-kubeconfig -scar-url "$(SCAR_URL)" -token "$$TOKEN_VAL" -insecure -output alice.kubeconfig
+	@kubectl ws use $(EXPORT_PATH) >/dev/null 2>&1 || true
+	@echo ""
+	@echo "Kubeconfig ready:"
+	@echo "  alice.kubeconfig → can access workspace-alice (create/list workspaces, view resources)"
+	@echo ""
+	@echo "Run MCP server:"
+	@echo "  kubernetes-mcp-server --kubeconfig=$(CURDIR)/alice.kubeconfig --cluster-provider=kcp --toolsets=core,kcp --port 8080"
+	@echo ""
+	@echo "Or add to ~/.copilot/mcp-config.json:"
+	@echo '  {"mcpServers":{"kcp-access":{"type":"local","command":"kubernetes-mcp-server","args":["--kubeconfig","$(CURDIR)/alice.kubeconfig","--cluster-provider=kcp","--toolsets=core,kcp"]}}}'
 
-# ── Kind-based setup ─────────────────────────────────────────────────
-
+#Kind-based setup
 .PHONY: kind-setup
 kind-setup: ## Create Kind cluster with full kcp + MCP stack
 	./hack/kind/setup.sh

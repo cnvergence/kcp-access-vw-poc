@@ -1,0 +1,44 @@
+# RBAC for workspace-alice — alice-sa gets workspace management + view.
+#
+# Applied with `make seed-rbac` into workspace-alice.
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: alice-sa
+  namespace: default
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: workspace-user
+rules:
+  - apiGroups: ["tenancy.kcp.io"]
+    resources: ["workspaces"]
+    verbs: ["create", "get", "list", "patch"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: access-vw-test--alice-sa-viewer
+subjects:
+  - kind: ServiceAccount
+    name: alice-sa
+    namespace: default
+roleRef:
+  kind: ClusterRole
+  name: view
+  apiGroup: rbac.authorization.k8s.io
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: access-vw-test--alice-sa-workspace-user
+subjects:
+  - kind: ServiceAccount
+    name: alice-sa
+    namespace: default
+roleRef:
+  kind: ClusterRole
+  name: workspace-user
+  apiGroup: rbac.authorization.k8s.io

@@ -66,62 +66,37 @@ make scar-alice
 
 > **⚠ Header trust:** `-trust-headers` is only safe when nothing untrusted can reach `:9099`. Don't expose this port without a front-proxy or real auth layer in front.
 
-## 3. Create a test workspace and bind it
+## 3. Create test workspaces and bind them
 
 In another terminal:
 
 ```sh
-make create-test-workspace
+make create-test-workspaces
 ```
 
-This creates `test-workspace` under root, applies `config/examples/apibinding-consumer.yaml` (the APIBinding), and restores the kubeconfig context to root.
+This creates two workspaces (`workspace-alice` and `workspace-bob`) under root, applies the `access.kcp.io` APIBinding in each, and restores the kubeconfig context to root.
 
-Watch the access-vw logs — you should see the apiexport provider engage a new cluster. The graph is still empty because the workspace has no RBAC yet.
+Watch the access-vw logs — you should see the apiexport provider engage two new clusters. The graph is still empty because neither workspace has RBAC yet.
 
-Confirm the binding is `Ready`:
-
-```sh
-kubectl ws use ':root:test-workspace'
-kubectl get apibindings access.kcp.io -o yaml | grep -A1 phase
-kubectl ws use ':root'
-```
-
-## 4. Seed some RBAC
+## 4. Seed RBAC
 
 ```sh
 make seed-rbac
 ```
 
-This applies `ClusterRoleBindings` for: user `alice`, groups `eng` and `platform`, service account `test-sa`, plus a `workspace-admin` ClusterRole granting workspace create/delete permissions. Each new CRB triggers a reconcile event in the access-vw logs.
+This creates:
+- `alice-sa` ServiceAccount in `workspace-alice` with `view` + `workspace-user` roles (can create/list workspaces but **not** delete)
+- `bob-sa` ServiceAccount in `workspace-bob` with `view` role
 
-## 5. Query SCAR
+Each SA only has access to its own workspace. The access-vw logs will show reconcile events as each CRB is created.
 
-```sh
-make scar-alice
-```
+## 5. Query SCAR (trusted headers mode)
 
-You should see:
-
-```json
-{
-  "kind": "SelfClusterAccessReview",
-  "apiVersion": "access.kcp.io/v1alpha1",
-  "status": {
-    "clusters": [
-      {
-        "clusterName": "abc12def-...",
-        "endpoint": "https://localhost:6443/clusters/abc12def-..."
-      }
-    ]
-  }
-}
-```
-
-Try other identities:
+If running with `make run-access-vw` (trusted headers), you can use X-Remote-User to test:
 
 ```sh
-make scar-eng       # anyone in group eng
-make scar-multi     # alice in eng AND platform
+make scar-alice     # user alice → has a CRB via alice-sa's workspace
+make scar-eng       # group eng
 ```
 
 A user with no matching binding returns an empty `clusters` array:
@@ -129,15 +104,6 @@ A user with no matching binding returns an empty `clusters` array:
 ```sh
 curl -sf -X POST -H 'X-Remote-User: nobody' \
   http://localhost:9099/services/access-virtual-workspace/apis/access.kcp.io/v1alpha1/selfclusteraccessreviews | jq
-```
-
-### Run the full demo
-
-The demo script walks through eight scenarios — authorized users, unauthorized users, group access, and dynamic grant/revoke — with pass/fail assertions:
-
-```sh
-make demo           # full showcase (modifies and restores RBAC)
-make demo-safe      # read-only (skips dynamic grant/revoke)
 ```
 
 ### Debug endpoint
@@ -155,12 +121,12 @@ Returns subjects (with their cluster mappings) and clusters (with their endpoint
 Delete one of the bindings:
 
 ```sh
-kubectl ws use ':root:test-workspace'
-kubectl delete clusterrolebinding access-vw-test--alice-viewer
+kubectl ws use ':root:workspace-alice'
+kubectl delete clusterrolebinding access-vw-test--alice-sa-viewer
 kubectl ws use ':root'
 ```
 
-Within seconds, `make scar-alice` should stop returning the workspace (unless alice is also in `eng` or `platform`). You'll see a reconcile event and `Revoke` in the logs.
+Within seconds, alice-sa's token should stop returning the workspace. You'll see a reconcile event and `Revoke` in the logs.
 
 ## 7. Iterate
 
@@ -200,9 +166,9 @@ curl -sf -X POST \
 
 > **Note:** The `scar-alice` / `scar-eng` smoke targets use `X-Remote-User` headers and only work with `make run-access-vw` (trusted headers mode).
 
-## MCP demo (manual scoping)
+## MCP demo — AI agent with scoped access
 
-This proves SCAR's output is consumable by a real MCP server end-to-end. A scoped kubeconfig is generated from SCAR and fed to `kubernetes-mcp-server`, so an MCP client sees exactly the workspaces SCAR returned — no more, no less.
+This proves SCAR's output is consumable by a real MCP server end-to-end. A scoped kubeconfig is generated from SCAR and fed to `kubernetes-mcp-server`, so an MCP client (Copilot CLI, Claude Code) sees exactly the workspaces SCAR returned — no more, no less.
 
 **Snapshot semantics:** the kubeconfig captures access at one moment. It won't reflect RBAC changes mid-session.
 
@@ -220,20 +186,104 @@ make run-access-vw-tokenauth
 make mcp-demo
 ```
 
-This generates a token from `test-sa`, calls SCAR, and writes `scar.kubeconfig`.
+This obtains a token for `alice-sa`, calls SCAR, and writes `alice.kubeconfig` — containing only the workspace-alice endpoint. The output also prints the MCP server command and Copilot config.
 
-**3. Run the MCP server:**
+**3. Connect your MCP client:**
+
+Option A — run the MCP server in a separate terminal and connect via HTTP:
 
 ```sh
-kubernetes-mcp-server --kubeconfig=scar.kubeconfig --cluster-provider=kcp
+kubernetes-mcp-server --kubeconfig=alice.kubeconfig --cluster-provider=kcp --toolsets=core,kcp --port 8080
 ```
 
-**4. Connect your MCP client** (e.g. Claude Code, Copilot CLI) and verify it sees only the authorized workspaces. You can list namespaces, create child workspaces, and manage resources — all scoped by SCAR.
+Add to `.mcp.json` (in the repo root or `~`):
+
+```json
+{
+  "mcpServers": {
+    "kcp-access": {
+      "type": "http",
+      "url": "http://localhost:8080/mcp"
+    }
+  }
+}
+```
+
+Option B — let Copilot CLI manage the MCP server as a local process. Add to `~/.copilot/mcp-config.json`:
+
+```json
+{
+  "mcpServers": {
+    "kcp-access": {
+      "type": "local",
+      "command": "kubernetes-mcp-server",
+      "args": [
+        "--kubeconfig", "/absolute/path/to/alice.kubeconfig",
+        "--cluster-provider=kcp",
+        "--toolsets=core,kcp"
+      ]
+    }
+  }
+}
+```
+
+**4. Start a new Copilot CLI / Claude Code session** — the MCP tools will be available automatically.
+
+### Showcasing — what alice-sa CAN do
+
+Once connected, try these prompts:
+
+```
+"List my kcp workspaces"
+"List all namespaces"
+"What resources exist in the cluster?"
+"Create a workspace called test-child with type universal"
+```
+
+Alice-sa has `view` + `workspace-user` roles, so she can:
+- ✅ List workspaces (sees only workspace-alice)
+- ✅ List namespaces, pods, services, etc.
+- ✅ Create child workspaces
+
+### Showcasing — what alice-sa CANNOT do
+
+```
+"Delete the test-child workspace"
+"Create a workspace with type organization"
+```
+
+Expected results:
+- ❌ **Delete workspace** — `access denied` (the `workspace-user` role intentionally excludes `delete`)
+- ❌ **Create organization workspace** — kcp rejects it (only allowed under root-type parents)
+- ❌ **See workspace-bob** — the endpoint isn't in the kubeconfig at all, so there's nothing to reach
+
+**The key insight:** SCAR doesn't just filter responses — it determines what endpoints exist in the kubeconfig. If a workspace isn't in the SCAR response, there's no URL to call. The MCP server literally cannot reach it.
+
+### Verifying directly with curl
+
+You can also verify the raw SCAR responses without the MCP server:
+
+```sh
+# alice-sa → returns workspace-alice endpoint
+kubectl ws use root/workspace-alice
+TOKEN=$(kubectl create token alice-sa --namespace=default --duration=1h)
+curl -sf -X POST -H "Authorization: Bearer $TOKEN" \
+  http://localhost:9099/services/access-virtual-workspace/apis/access.kcp.io/v1alpha1/selfclusteraccessreviews | jq
+# → {"status": {"clusters": [{"clusterName": "...", "endpoint": "..."}]}}
+
+# bob-sa → returns workspace-bob endpoint (different cluster)
+kubectl ws use root/workspace-bob
+TOKEN=$(kubectl create token bob-sa --namespace=default --duration=1h)
+curl -sf -X POST -H "Authorization: Bearer $TOKEN" \
+  http://localhost:9099/services/access-virtual-workspace/apis/access.kcp.io/v1alpha1/selfclusteraccessreviews | jq
+# → {"status": {"clusters": [{"clusterName": "...", "endpoint": "..."}]}}
+# (different clusterName than alice!)
+```
 
 ### MCP cleanup
 
 ```sh
-rm -f scar.kubeconfig
+rm -f alice.kubeconfig
 ```
 
 ## Cleanup

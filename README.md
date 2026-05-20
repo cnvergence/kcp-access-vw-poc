@@ -67,15 +67,12 @@ kcp start
 make install-apiexport
 
 # 3. Create a test workspace and seed RBAC
-make create-test-workspace
+make create-test-workspaces
 make seed-rbac
 
 # 4. Start the server (trusted headers mode)
 make run-access-vw
 
-# 5. Run the RBAC enforcement demo (in another terminal)
-make demo
-```
 
 The demo walks through authorized users, unauthorized users, group access, and dynamic grant/revoke — with pass/fail assertions for each scenario.
 
