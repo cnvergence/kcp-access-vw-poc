@@ -23,6 +23,8 @@ spec:
             - -addr=:9099
             - -kubeconfig=/etc/kcp/admin.kubeconfig
             - -trust-headers
+            - -endpoint-base=https://root.kcp.example:6443/clusters/
+            - -apiexport-endpointslice=access.kcp.io
           ports:
             - containerPort: 9099
               name: http
@@ -47,6 +49,9 @@ spec:
         - name: kcp-kubeconfig
           secret:
             secretName: access-vw-kubeconfig
+            items:
+              - key: kubeconfig
+                path: admin.kubeconfig
 ---
 apiVersion: v1
 kind: Service

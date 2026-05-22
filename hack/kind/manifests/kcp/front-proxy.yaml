@@ -8,17 +8,30 @@ metadata:
 spec:
   image:
     repository: ghcr.io/kcp-dev/kcp
-    tag: latest
+    tag: v0.31.2
   replicas: 1
   external:
-    hostname: kcp.localhost
-    port: 8443
-  certificates:
-    issuerRef:
-      group: cert-manager.io
-      kind: Issuer
-      name: selfsigned
+    hostname: root.kcp.example
+    port: 6443
+  rootShard:
+    ref:
+      name: root
+  auth:
+    serviceAccount:
+      enabled: true
+    oidc:
+      issuerURL: https://keycloak-keycloakx-http.keycloak.svc.cluster.local:8443/realms/kcp
+      clientID: kcp
+      usernameClaim: preferred_username
+      usernamePrefix: "-"
+      groupsClaim: groups
+      groupsPrefix: "-"
+      caFileRef:
+        name: keycloak-ca
+        key: ca.crt
   additionalPathMappings:
     - path: /services/access-virtual-workspace
-      backend:
-        url: http://access-vw.kcp-system.svc.cluster.local:9099
+      backend: http://access-vw.kcp-system.svc.cluster.local:9099
+      backend_server_ca: /etc/kcp/tls/ca/tls.crt
+      proxy_client_cert: /etc/kcp-front-proxy/requestheader-client/tls.crt
+      proxy_client_key: /etc/kcp-front-proxy/requestheader-client/tls.key

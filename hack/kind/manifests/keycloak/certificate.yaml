@@ -1,0 +1,49 @@
+# TLS certificate for Keycloak — required because kcp OIDC mandates HTTPS issuer URLs.
+# Uses a self-signed CA (not a directly self-signed cert) to produce a valid issuer DN.
+apiVersion: cert-manager.io/v1
+kind: Issuer
+metadata:
+  name: keycloak-selfsigned
+  namespace: keycloak
+spec:
+  selfSigned: {}
+---
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: keycloak-ca
+  namespace: keycloak
+spec:
+  isCA: true
+  secretName: keycloak-ca
+  commonName: keycloak-ca
+  issuerRef:
+    name: keycloak-selfsigned
+    kind: Issuer
+  duration: 8760h
+---
+apiVersion: cert-manager.io/v1
+kind: Issuer
+metadata:
+  name: keycloak-ca-issuer
+  namespace: keycloak
+spec:
+  ca:
+    secretName: keycloak-ca
+---
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: keycloak-tls
+  namespace: keycloak
+spec:
+  secretName: keycloak-tls
+  issuerRef:
+    name: keycloak-ca-issuer
+    kind: Issuer
+  dnsNames:
+    - keycloak-keycloakx-http
+    - keycloak-keycloakx-http.keycloak
+    - keycloak-keycloakx-http.keycloak.svc.cluster.local
+  duration: 8760h
+  renewBefore: 720h

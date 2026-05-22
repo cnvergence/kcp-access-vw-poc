@@ -8,15 +8,15 @@ metadata:
 spec:
   image:
     repository: ghcr.io/kcp-dev/kcp
-    tag: latest
+    tag: v0.31.2
   proxy:
     image:
       repository: ghcr.io/kcp-dev/kcp
-      tag: latest
-  shardBaseURL: https://root.kcp.localhost:8443
+      tag: v0.31.2
+  shardBaseURL: https://root-kcp.kcp-system.svc.cluster.local:6443
   external:
-    hostname: kcp.localhost
-    port: 8443
+    hostname: root.kcp.example
+    port: 6443
   certificates:
     issuerRef:
       group: cert-manager.io
@@ -31,3 +31,13 @@ spec:
   auth:
     serviceAccount:
       enabled: true
+    oidc:
+      issuerURL: https://keycloak-keycloakx-http.keycloak.svc.cluster.local:8443/realms/kcp
+      clientID: kcp
+      usernameClaim: preferred_username
+      usernamePrefix: ""
+      groupsClaim: groups
+      groupsPrefix: ""
+      caFileRef:
+        name: keycloak-ca
+        key: ca.crt

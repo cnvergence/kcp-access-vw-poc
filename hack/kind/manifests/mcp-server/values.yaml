@@ -21,6 +21,9 @@ extraVolumes:
   - name: kcp-kubeconfig
     secret:
       secretName: mcp-server-kubeconfig
+      items:
+        - key: kubeconfig
+          path: kubeconfig
 
 extraVolumeMounts:
   - name: kcp-kubeconfig
