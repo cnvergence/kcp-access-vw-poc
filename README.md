@@ -41,6 +41,11 @@ Permission-aware workspace discovery for [kcp](https://www.kcp.io/). Implements 
 | `config/apiexport` | kcp APIExport + APIResourceSchema manifests for `access.kcp.io`. |
 | `config/deployment` | Kubernetes Deployment manifest for the controller. |
 | `config/examples` | Example APIBinding for consumer workspaces to opt in. |
+| `config/rbac` | Per-user RBAC seed files (alice=cluster-admin, bob=view+workspace-user). |
+| `hack/kind/` | Kind-based full-stack setup (Makefile, manifests, helm values, scripts). |
+| `hack/kind/manifests/` | Plain K8s manifests organized by component, applied via `kubectl apply -k`. |
+| `hack/kind/helm/` | Helm values files for chart installations (Envoy, Keycloak, MCP server). |
+| `docs/` | Testing guides, upstream contribution notes. |
 
 ## Quick start
 
@@ -80,11 +85,19 @@ See [`docs/local-testing.md`](docs/local-testing.md) for the full walkthrough.
 
 ### Kind-based setup (full stack)
 
-Deploys the complete ADR 007 architecture into a local Kind cluster — kcp, Envoy AI Gateway, Keycloak (OIDC), access-vw, and kubernetes-mcp-server:
+Deploys the complete ADR 007 architecture into a local Kind cluster — kcp (single shard, multi-shard code path), Envoy AI Gateway (HTTPS), Keycloak (OIDC), access-vw, and kubernetes-mcp-server:
 
 ```sh
 make kind-setup     # ~5 min, creates everything
 make kind-teardown  # delete the cluster
+```
+
+The setup creates per-user workspaces (`alice-workspace`, `bob-workspace`) with differentiated RBAC and verifies SCAR end-to-end with real OIDC tokens. Available Makefile targets:
+
+```sh
+make -C hack/kind help          # list all targets
+make -C hack/kind scar USER=alice   # test SCAR for a user
+make -C hack/kind get-token USER=bob  # get OIDC token
 ```
 
 See [`docs/kind-testing.md`](docs/kind-testing.md) for the full walkthrough and architecture details.
@@ -148,7 +161,7 @@ Returns the current graph state: all subjects and their cluster mappings.
 
 The server supports two run modes:
 
-- **Multi-shard** (`-kubeconfig` + `-apiexport-endpointslice`): Production mode. Uses the kcp apiexport provider via multicluster-runtime to watch bindings across all workspaces bound to the `access.kcp.io` APIExport.
+- **Multi-shard** (`-kubeconfig` + `-apiexport-endpointslice`): Production mode. Uses the kcp apiexport provider via multicluster-runtime to watch RBAC bindings across all workspaces bound to the `access.kcp.io` APIExport. Only workspaces with an APIBinding for `access.kcp.io` are indexed — this is the opt-in design.
 - **Single-shard** (`-kubeconfig` only): Development mode. Standard client-go informers against one cluster.
 
 Authentication chain (in order):
@@ -166,7 +179,7 @@ See [`config/README.md`](config/README.md) for production deployment instruction
 
 ## Status
 
-> **Proof of concept.** The architecture and decisions are tracked in ADR 007. Expect APIs and package layout to evolve.
+> **Proof of concept — SCAR is working end-to-end.** The Kind setup demonstrates the full ADR 007 architecture with a single-shard kcp deployment running the multi-shard code path (`-apiexport-endpointslice`): OIDC authentication via Keycloak, MCP routing via Envoy AI Gateway (HTTPS), per-user workspace scoping via SCAR, and RBAC indexing via the APIExport provider. Expect APIs and package layout to evolve.
 
 ## License
 

@@ -356,7 +356,7 @@ The setup mirrors the ADR 007 production architecture:
 | Aspect | This setup | Production |
 |--------|-----------|------------|
 | TLS | Self-signed CA (cert-manager) | Real certificates |
-| kcp | Single shard, embedded cache | Multi-shard, dedicated etcd cluster |
+| kcp | Single shard, multi-shard code path, embedded cache | Multi-shard, dedicated etcd per shard |
 | Gateway | Envoy AI Gateway (HTTPS, self-signed) | Edge gateway (Envoy or cloud LB, real certs) |
 | Keycloak | Local instance, `kcp` realm, H2 DB | External OIDC provider |
 | MCP server | `kubernetes-mcp-server` binary | Bespoke MCP VW (Issue #2) |
