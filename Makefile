@@ -159,15 +159,15 @@ mcp-demo: build ## Generate scoped alice.kubeconfig for MCP demo
 #Kind-based setup
 .PHONY: kind-setup
 kind-setup: ## Create Kind cluster with full kcp + MCP stack
-	./hack/kind/setup.sh
+	$(MAKE) -C hack/kind setup
 
 .PHONY: kind-teardown
 kind-teardown: ## Delete the Kind cluster
-	./hack/kind/teardown.sh
+	$(MAKE) -C hack/kind teardown
 
 .PHONY: kind-build
-kind-build: ## Build access-vw image and load into Kind
-	./hack/kind/scripts/build-images.sh
+kind-build: docker-build ## Build access-vw image and load into Kind
+	kind load docker-image localhost/access-vw:local --name kcp-access-vw
 
 .PHONY: docker-build
 docker-build: ## Build access-vw Docker image

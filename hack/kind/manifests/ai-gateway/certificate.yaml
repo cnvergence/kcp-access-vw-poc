@@ -1,0 +1,24 @@
+# TLS certificate for the MCP Gateway.
+# Uses a self-signed CA so the Gateway can terminate HTTPS.
+apiVersion: cert-manager.io/v1
+kind: Issuer
+metadata:
+  name: mcp-selfsigned
+  namespace: mcp
+spec:
+  selfSigned: {}
+---
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: mcp-gateway-tls
+  namespace: mcp
+spec:
+  secretName: mcp-gateway-tls
+  issuerRef:
+    name: mcp-selfsigned
+    kind: Issuer
+  dnsNames:
+    - mcp.kcp.example
+  duration: 8760h
+  renewBefore: 720h

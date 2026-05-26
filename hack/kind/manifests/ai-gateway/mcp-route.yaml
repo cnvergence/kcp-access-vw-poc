@@ -21,7 +21,7 @@ spec:
           # JWKS is public key material, safe over in-cluster HTTP.
           uri: http://keycloak-keycloakx-http.keycloak.svc.cluster.local/realms/kcp/protocol/openid-connect/certs
       protectedResourceMetadata:
-        resource: "http://mcp.kcp.example:8443/mcp"
+        resource: "https://mcp.kcp.example:8443/mcp"
         scopesSupported:
           - openid
           - profile
@@ -48,8 +48,12 @@ spec:
   gatewayClassName: kcp-mcp
   listeners:
     - name: mcp
-      protocol: HTTP
+      protocol: HTTPS
       port: 8443
+      tls:
+        mode: Terminate
+        certificateRefs:
+          - name: mcp-gateway-tls
   infrastructure:
     parametersRef:
       group: gateway.envoyproxy.io

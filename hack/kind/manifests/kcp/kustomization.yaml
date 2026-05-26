@@ -1,0 +1,9 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+resources:
+  - issuer.yaml
+  - etcd.yaml
+  - root-shard.yaml
+  - front-proxy.yaml
+  - admin-kubeconfig.yaml
+  - frontproxy-nodeport.yaml
