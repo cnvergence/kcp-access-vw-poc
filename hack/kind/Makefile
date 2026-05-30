@@ -164,6 +164,11 @@ install-kcp: ## Install kcp-operator + etcd + RootShard + FrontProxy
 	$(KC) patch rootshard root -n $(KCP_NS) --type merge -p " \
 	  {\"spec\":{\"deploymentTemplate\":{\"spec\":{\"template\":{\"spec\":{\"hostAliases\":[{\"ip\":\"$$FP_IP\",\"hostnames\":[\"root.kcp.example\"]}]}}}}}}"
 	$(call wait-for-deployment,$(KCP_NS),root-kcp,120s)
+	# Patch FrontProxy deployment with Keycloak hostAlias (operator doesn't support hostAliases in CR)
+	$(call info,Patching FrontProxy hostAliases for Keycloak)
+	@KC_IP=$$($(KC) get svc keycloak-keycloakx-http -n $(KEYCLOAK_NS) -o jsonpath='{.spec.clusterIP}'); \
+	$(KC) patch deployment frontproxy-front-proxy -n $(KCP_NS) --type=json \
+	  -p "[{\"op\":\"add\",\"path\":\"/spec/template/spec/hostAliases\",\"value\":[{\"ip\":\"$$KC_IP\",\"hostnames\":[\"keycloak.kcp.example\"]}]}]"
 	# Restart kcp components to pick up OIDC (Keycloak must be deployed first)
 	$(call info,Restarting kcp for OIDC discovery)
 	@$(KC) rollout restart deployment/root-kcp -n $(KCP_NS)

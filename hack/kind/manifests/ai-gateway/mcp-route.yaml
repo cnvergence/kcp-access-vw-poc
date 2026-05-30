@@ -14,7 +14,7 @@ spec:
       group: gateway.networking.k8s.io
   securityPolicy:
     oauth:
-      issuer: "https://keycloak-keycloakx-http.keycloak.svc.cluster.local:8443/realms/kcp"
+      issuer: "https://keycloak.kcp.example:8443/realms/kcp"
       jwks:
         remoteJWKS:
           # Use HTTP for JWKS fetch — Envoy doesn't have the Keycloak CA cert.
