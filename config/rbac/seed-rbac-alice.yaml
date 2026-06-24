@@ -1,6 +1,7 @@
 # RBAC for alice — cluster-admin in her own workspace.
 #
 # Applied into root:alice-workspace during `make kind-setup`.
+# The username is the OIDC format: issuer#subject
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRoleBinding
@@ -8,7 +9,8 @@ metadata:
   name: alice-admin
 subjects:
   - kind: User
-    name: alice
+    # OIDC username format from Keycloak
+    name: "https://keycloak-keycloakx-http.keycloak.svc.cluster.local:8443/realms/kcp#alice"
     apiGroup: rbac.authorization.k8s.io
 roleRef:
   kind: ClusterRole

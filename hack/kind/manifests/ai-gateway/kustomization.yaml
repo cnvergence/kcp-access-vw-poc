@@ -3,3 +3,6 @@ kind: Kustomization
 resources:
   - certificate.yaml
   - mcp-route.yaml
+  - proxy-service.yaml
+  - keycloak-backend.yaml
+  # reference-grant.yaml kept for documentation but MCPRoute doesn't support cross-namespace refs

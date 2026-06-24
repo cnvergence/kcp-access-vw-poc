@@ -201,29 +201,12 @@ install-access-vw: build-image ## Build image + deploy access-vw
 # ── MCP server + AI Gateway route ───────────────────────────────────────────
 
 .PHONY: install-mcp
-install-mcp: ## Install MCP server (helm) + MCPRoute (kustomize)
-	$(call info,Deploying kubernetes-mcp-server)
+install-mcp: ## Install MCPRoute pointing to access-vw MCP endpoint
+	$(call info,Setting up MCP namespace and MCPRoute)
 	@$(KC) create namespace $(MCP_NS) --dry-run=client -o yaml | $(KC) apply -f -
-	@$(KC) apply -k manifests/mcp-server
-	@$(KC) wait --for=jsonpath='{.status.phase}'=Ready kubeconfig/mcp-server-kubeconfig \
-		-n $(KCP_NS) --timeout=120s
-	# Wait for the secret to be created by the kubeconfig controller
-	@for i in $$(seq 1 30); do \
-		$(KC) get secret mcp-server-kubeconfig -n $(KCP_NS) >/dev/null 2>&1 && break; \
-		echo "  Waiting for mcp-server-kubeconfig secret... ($$i/30)"; \
-		sleep 2; \
-	done
-	# Copy kubeconfig secret to mcp namespace
-	@$(KC) get secret mcp-server-kubeconfig -n $(KCP_NS) -o json \
-		| jq 'del(.metadata.namespace, .metadata.resourceVersion, .metadata.uid, .metadata.creationTimestamp, .metadata.ownerReferences)' \
-		| $(KC) apply -n $(MCP_NS) -f -
-	@helm upgrade --install kubernetes-mcp-server \
-		oci://ghcr.io/containers/charts/kubernetes-mcp-server \
-		--version 0.1.0 \
-		--namespace $(MCP_NS) \
-		-f helm/mcp-values.yaml \
-		--wait --timeout 120s
-	$(call info,Applying MCPRoute)
+	# Note: kubernetes-mcp-server helm install removed — access-vw now serves MCP
+	# The MCPRoute points to access-vw in kcp-system via ReferenceGrant
+	$(call info,Applying MCPRoute + ReferenceGrant)
 	@$(KC) apply -k manifests/ai-gateway
 
 # ── Seed test data ───────────────────────────────────────────────────────────

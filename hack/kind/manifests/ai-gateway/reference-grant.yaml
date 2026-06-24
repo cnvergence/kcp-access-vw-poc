@@ -1,0 +1,17 @@
+# ReferenceGrant allows MCPRoute in the 'mcp' namespace to reference
+# the access-vw Service in 'kcp-system' namespace.
+# Required by Gateway API for cross-namespace backend references.
+apiVersion: gateway.networking.k8s.io/v1beta1
+kind: ReferenceGrant
+metadata:
+  name: mcp-to-access-vw
+  namespace: kcp-system
+spec:
+  from:
+    - group: aigateway.envoyproxy.io
+      kind: MCPRoute
+      namespace: mcp
+  to:
+    - group: ""
+      kind: Service
+      name: access-vw

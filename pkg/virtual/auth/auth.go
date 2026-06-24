@@ -65,7 +65,7 @@ type TokenReviewResolver struct {
 
 // Resolve extracts the bearer token and calls TokenReview.
 func (r *TokenReviewResolver) Resolve(ctx context.Context, req *http.Request) (*Identity, error) {
-	token := extractBearerToken(req)
+	token := BearerTokenFromRequest(req)
 	if token == "" {
 		return nil, fmt.Errorf("no bearer token in request")
 	}
@@ -170,16 +170,16 @@ func (c *ChainResolver) Resolve(ctx context.Context, r *http.Request) (*Identity
 
 // ── helpers ─────────────────────────────────────────────────────────
 
-// extractBearerToken pulls the bearer token from the Authorization
+// BearerTokenFromRequest extracts the bearer token from the Authorization
 // header, or falls back to the "token" query parameter (useful for
 // WebSocket upgrades where browsers can't set headers).
-func extractBearerToken(r *http.Request) string {
+func BearerTokenFromRequest(r *http.Request) string {
 	auth := r.Header.Get("Authorization")
-	if strings.HasPrefix(auth, "Bearer ") {
-		return strings.TrimPrefix(auth, "Bearer ")
+	if token, ok := strings.CutPrefix(auth, "Bearer "); ok {
+		return token
 	}
-	if t := r.URL.Query().Get("token"); t != "" {
-		return t
+	if token := r.URL.Query().Get("token"); token != "" {
+		return token
 	}
 	return ""
 }

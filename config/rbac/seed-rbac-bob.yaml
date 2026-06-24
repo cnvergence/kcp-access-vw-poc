@@ -2,6 +2,7 @@
 #
 # Applied into root:bob-workspace during `make kind-setup`.
 # Bob gets view + workspace-user (limited), while alice gets cluster-admin.
+# The username is the OIDC format: issuer#subject
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRole
@@ -18,7 +19,8 @@ metadata:
   name: bob-viewer
 subjects:
   - kind: User
-    name: bob
+    # OIDC username format from Keycloak
+    name: "https://keycloak-keycloakx-http.keycloak.svc.cluster.local:8443/realms/kcp#bob"
     apiGroup: rbac.authorization.k8s.io
 roleRef:
   kind: ClusterRole
@@ -31,7 +33,8 @@ metadata:
   name: bob-workspace-user
 subjects:
   - kind: User
-    name: bob
+    # OIDC username format from Keycloak
+    name: "https://keycloak-keycloakx-http.keycloak.svc.cluster.local:8443/realms/kcp#bob"
     apiGroup: rbac.authorization.k8s.io
 roleRef:
   kind: ClusterRole

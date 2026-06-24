@@ -34,6 +34,7 @@ import (
 	"github.com/cnvergence/kcp-access-vw/pkg/graph"
 	"github.com/cnvergence/kcp-access-vw/pkg/rbacprovider"
 	"github.com/cnvergence/kcp-access-vw/pkg/virtual/auth"
+	"github.com/cnvergence/kcp-access-vw/pkg/virtual/mcp"
 	"github.com/cnvergence/kcp-access-vw/pkg/virtual/scar"
 )
 
@@ -103,8 +104,18 @@ func main() {
 
 	resolver := &auth.ChainResolver{Resolvers: resolvers}
 
+	// Create ClientFactory for MCP handler (reuses TLS connections)
+	clientFactory, err := mcp.NewClientFactory(config)
+	if err != nil {
+		log.Fatalf("create client factory: %v", err)
+	}
+
 	mux := http.NewServeMux()
 	scar.Register(mux, g, resolver)
+	mcp.Register(mux, g, resolver, &mcp.Options{
+		EndpointBase:  *endpointBase,
+		ClientFactory: clientFactory,
+	})
 	mux.HandleFunc("/healthz", func(w http.ResponseWriter, _ *http.Request) {
 		if g.Ready() {
 			w.WriteHeader(http.StatusOK)
@@ -131,6 +142,7 @@ func main() {
 	go func() {
 		log.Printf("access-vw listening on %s", *addr)
 		log.Printf("SCAR endpoint: %s", scar.Path)
+		log.Printf("MCP endpoint: %s", mcp.Path)
 		if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
 			log.Fatalf("listen: %v", err)
 		}

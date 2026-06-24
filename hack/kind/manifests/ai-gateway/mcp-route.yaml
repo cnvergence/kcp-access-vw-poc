@@ -1,6 +1,6 @@
 # MCPRoute for Envoy AI Gateway.
-# Routes MCP traffic to kubernetes-mcp-server with Keycloak OAuth.
-# Based on envoyproxy/ai-gateway/examples/mcp/mcp_oauth_keycloak.yaml
+# Routes MCP traffic to access-vw (kcp-access-vw MCP endpoint).
+# Auth handled by access-vw (FrontProxy auth resolver), not at gateway level.
 ---
 apiVersion: aigateway.envoyproxy.io/v1beta1
 kind: MCPRoute
@@ -12,24 +12,16 @@ spec:
     - name: kcp-mcp-gateway
       kind: Gateway
       group: gateway.networking.k8s.io
-  securityPolicy:
-    oauth:
-      issuer: "https://keycloak-keycloakx-http.keycloak.svc.cluster.local:8443/realms/kcp"
-      jwks:
-        remoteJWKS:
-          # Use HTTP for JWKS fetch — Envoy doesn't have the Keycloak CA cert.
-          # JWKS is public key material, safe over in-cluster HTTP.
-          uri: http://keycloak-keycloakx-http.keycloak.svc.cluster.local/realms/kcp/protocol/openid-connect/certs
-      protectedResourceMetadata:
-        resource: "https://mcp.kcp.example:8443/mcp"
-        scopesSupported:
-          - openid
-          - profile
-          - email
+  # No securityPolicy here - let access-vw handle auth via its own OIDC validation
+  # The Authorization header is forwarded to the backend via forwardHeaders
   backendRefs:
-    - name: kubernetes-mcp-server
+    # Use in-namespace ExternalName proxy since MCPRoute doesn't support cross-namespace refs
+    - name: access-vw-proxy
       kind: Service
-      port: 8080
+      port: 9099
+      path: /services/access-virtual-workspace/mcp
+      forwardHeaders:
+        - name: Authorization
 ---
 # Gateway for MCP traffic
 apiVersion: gateway.networking.k8s.io/v1
