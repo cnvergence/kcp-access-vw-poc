@@ -62,6 +62,9 @@ func RegisterAll(server *mcp.Server, scope Scope) {
 	registerListResources(server, scope)
 	registerGetResource(server, scope)
 
+	// Write operations (create, update, patch, delete, scale)
+	registerWriteOperations(server, scope)
+
 	// API discovery tools (for exploring available K8s/kcp APIs)
 	registerDiscoveryTools(server, scope)
 
