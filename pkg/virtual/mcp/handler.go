@@ -62,26 +62,22 @@ func Register(mux *http.ServeMux, g *graph.Graph, resolver auth.Resolver, opts *
 // serverForRequest builds an MCP server scoped to the authenticated caller.
 // Returns an error server if authentication or graph readiness fails.
 func serverForRequest(r *http.Request, g *graph.Graph, resolver auth.Resolver, opts *Options) *mcp.Server {
-	// 1. Check graph readiness (same as SCAR)
 	if !g.Ready() {
 		return errorServer("access graph is not ready; try again shortly")
 	}
 
-	// 2. Authenticate
 	id, err := resolver.Resolve(r.Context(), r)
 	if err != nil {
 		log.Printf("mcp: auth failed: %v", err)
 		return errorServer("authentication failed")
 	}
 
-	// 3. Extract bearer token for downstream K8s calls
 	token := auth.BearerTokenFromRequest(r)
 	if token == "" {
 		log.Printf("mcp: no bearer token for user %s", id.Username)
 		return errorServer("missing bearer token")
 	}
 
-	// Log token receipt (truncated for security) - Phase 1 acceptance criteria
 	if len(token) > 20 {
 		log.Printf("mcp: authenticated user=%s groups=%v token=%s...%s (len=%d)",
 			id.Username, id.Groups, token[:10], token[len(token)-5:], len(token))
@@ -90,20 +86,17 @@ func serverForRequest(r *http.Request, g *graph.Graph, resolver auth.Resolver, o
 			id.Username, id.Groups, len(token))
 	}
 
-	// 4. Get authorized workspaces
 	clusters := g.ClustersFor(id.Username, id.Groups)
 	log.Printf("mcp: user=%s has access to %d workspaces", id.Username, len(clusters))
 
-	// 5. Build per-request scope
 	scope := &WorkspaceScope{
-		User:     id.Username,
-		Groups:   id.Groups,
-		Token:    token,
-		Clusters: clusters,
-		factory:  opts.ClientFactory,
+		User:        id.Username,
+		Groups:      id.Groups,
+		Token:       token,
+		ClusterList: clusters,
+		factory:     opts.ClientFactory,
 	}
 
-	// 6. Create MCP server with tools bound to this scope
 	return NewServer(scope)
 }
 
@@ -116,7 +109,6 @@ func errorServer(msg string) *mcp.Server {
 		Version: "v1alpha1",
 	}, nil)
 
-	// Register a placeholder tool that returns the error using typed handler
 	type errorInput struct{}
 	type errorOutput struct {
 		Error string `json:"error"`

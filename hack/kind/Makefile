@@ -196,6 +196,11 @@ install-access-vw: build-image ## Build image + deploy access-vw
 	@$(KC) apply -k manifests/access-vw
 	@$(KC) wait --for=jsonpath='{.status.phase}'=Ready kubeconfig/access-vw-kubeconfig \
 		-n $(KCP_NS) --timeout=120s
+	# Patch access-vw with hostAliases so it can reach root.kcp.example
+	$(call info,Patching access-vw hostAliases for FrontProxy)
+	@FP_IP=$$($(KC) get svc frontproxy-front-proxy -n $(KCP_NS) -o jsonpath='{.spec.clusterIP}'); \
+	$(KC) patch deployment access-vw -n $(KCP_NS) --type merge -p " \
+	  {\"spec\":{\"template\":{\"spec\":{\"hostAliases\":[{\"ip\":\"$$FP_IP\",\"hostnames\":[\"root.kcp.example\"]}]}}}}"
 	$(call wait-for-deployment,$(KCP_NS),access-vw,120s)
 
 # ── MCP server + AI Gateway route ───────────────────────────────────────────

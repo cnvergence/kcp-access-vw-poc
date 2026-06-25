@@ -9,14 +9,15 @@ import (
 	"k8s.io/client-go/rest"
 
 	"github.com/cnvergence/kcp-access-vw/pkg/graph"
+	"github.com/cnvergence/kcp-access-vw/pkg/virtual/mcp/tools"
 )
 
 // ClientFactory owns the shared HTTP transport and produces K8s clients
 // that differ only in bearer token and target endpoint. Constructed once
 // at server start to amortize TLS handshake cost across all requests.
 type ClientFactory struct {
-	base *rest.Config      // CAData, TLS settings from access-vw kubeconfig
-	rt   http.RoundTripper // shared transport, reused across all clients
+	base *rest.Config
+	rt   http.RoundTripper
 }
 
 // NewClientFactory creates a ClientFactory from the access-vw's kubeconfig.
@@ -27,10 +28,8 @@ func NewClientFactory(baseConfig *rest.Config) (*ClientFactory, error) {
 		return nil, fmt.Errorf("base config cannot be nil")
 	}
 
-	// Clone the config to avoid mutating the original
 	base := rest.CopyConfig(baseConfig)
 
-	// Create a shared transport from the base config
 	rt, err := rest.TransportFor(base)
 	if err != nil {
 		return nil, fmt.Errorf("creating transport: %w", err)
@@ -52,13 +51,9 @@ func (f *ClientFactory) Clients(endpoint, token string) (kubernetes.Interface, d
 		return nil, nil, fmt.Errorf("token cannot be empty")
 	}
 
-	// Build a config for this specific endpoint + token
 	cfg := &rest.Config{
-		Host:        endpoint,
-		BearerToken: token,
-		// Reuse TLS config and transport from the base
-		TLSClientConfig: f.base.TLSClientConfig,
-		Transport:       f.rt,
+		Host:      endpoint,
+		Transport: &tokenRoundTripper{base: f.rt, token: token},
 	}
 
 	typedClient, err := kubernetes.NewForConfig(cfg)
@@ -74,20 +69,33 @@ func (f *ClientFactory) Clients(endpoint, token string) (kubernetes.Interface, d
 	return typedClient, dynClient, nil
 }
 
+// tokenRoundTripper wraps an http.RoundTripper to inject a bearer token.
+type tokenRoundTripper struct {
+	base  http.RoundTripper
+	token string
+}
+
+func (t *tokenRoundTripper) RoundTrip(req *http.Request) (*http.Response, error) {
+	// Clone the request to avoid mutating the original
+	req2 := req.Clone(req.Context())
+	req2.Header.Set("Authorization", "Bearer "+t.token)
+	return t.base.RoundTrip(req2)
+}
+
 // WorkspaceScope holds per-request authorization context. Built fresh for
 // each MCP request from the caller's identity and the access graph state.
 type WorkspaceScope struct {
-	User     string
-	Groups   []string
-	Token    string                      // caller's bearer token
-	Clusters []graph.AccessEndpointSlice // already filtered by graph.ClustersFor
-	factory  *ClientFactory              // shared, not owned
+	User        string
+	Groups      []string
+	Token       string
+	ClusterList []graph.AccessEndpointSlice
+	factory     *ClientFactory
 }
 
 // Names returns the list of workspace IDs the caller has access to.
 func (s *WorkspaceScope) Names() []string {
-	names := make([]string, len(s.Clusters))
-	for i, c := range s.Clusters {
+	names := make([]string, len(s.ClusterList))
+	for i, c := range s.ClusterList {
 		names[i] = c.ClusterName
 	}
 	return names
@@ -95,7 +103,7 @@ func (s *WorkspaceScope) Names() []string {
 
 // HasAccess returns true if the workspace is in the caller's scope.
 func (s *WorkspaceScope) HasAccess(workspace string) bool {
-	for _, c := range s.Clusters {
+	for _, c := range s.ClusterList {
 		if c.ClusterName == workspace {
 			return true
 		}
@@ -106,9 +114,8 @@ func (s *WorkspaceScope) HasAccess(workspace string) bool {
 // ClientFor returns K8s clients for the given workspace. Returns an error
 // if the workspace is not in scope or client creation fails.
 func (s *WorkspaceScope) ClientFor(workspace string) (kubernetes.Interface, dynamic.Interface, error) {
-	// Find the endpoint for this workspace
 	var endpoint string
-	for _, c := range s.Clusters {
+	for _, c := range s.ClusterList {
 		if c.ClusterName == workspace {
 			endpoint = c.Endpoint
 			break
@@ -120,4 +127,17 @@ func (s *WorkspaceScope) ClientFor(workspace string) (kubernetes.Interface, dyna
 	}
 
 	return s.factory.Clients(endpoint, s.Token)
+}
+
+// Clusters returns cluster info for the tools package.
+// This satisfies the tools.Scope interface.
+func (s *WorkspaceScope) Clusters() []tools.ClusterInfo {
+	result := make([]tools.ClusterInfo, len(s.ClusterList))
+	for i, c := range s.ClusterList {
+		result[i] = tools.ClusterInfo{
+			ClusterName: c.ClusterName,
+			Endpoint:    c.Endpoint,
+		}
+	}
+	return result
 }
