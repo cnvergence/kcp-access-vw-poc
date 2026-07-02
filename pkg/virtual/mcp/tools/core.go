@@ -109,7 +109,7 @@ type ListPartitionSetsOutput struct {
 func registerCoreTools(server *mcp.Server, scope Scope) {
 	// list_logicalclusters
 	mcp.AddTool(server, &mcp.Tool{
-		Name: "list_logicalclusters",
+		Name: "list_kcp_logicalclusters",
 		Description: `List LogicalClusters visible from a kcp workspace.
 LogicalClusters represent the internal cluster identity within kcp.
 Each workspace has an associated LogicalCluster.`,
@@ -118,7 +118,7 @@ Each workspace has an associated LogicalCluster.`,
 			"properties": map[string]any{
 				"workspace": map[string]any{
 					"type":        "string",
-					"description": "Workspace ID (from list_workspaces)",
+					"description": "Workspace ID (from list_kcp_workspaces)",
 				},
 			},
 			"required": []string{"workspace"},
@@ -166,7 +166,7 @@ Each workspace has an associated LogicalCluster.`,
 
 	// list_shards
 	mcp.AddTool(server, &mcp.Tool{
-		Name: "list_shards",
+		Name: "list_kcp_shards",
 		Description: `List Shards visible from a kcp workspace.
 Shards are the physical kcp server instances that host workspaces.
 This is typically only visible from the root workspace.`,
@@ -175,7 +175,7 @@ This is typically only visible from the root workspace.`,
 			"properties": map[string]any{
 				"workspace": map[string]any{
 					"type":        "string",
-					"description": "Workspace ID (from list_workspaces)",
+					"description": "Workspace ID (from list_kcp_workspaces)",
 				},
 			},
 			"required": []string{"workspace"},
@@ -223,7 +223,7 @@ This is typically only visible from the root workspace.`,
 
 	// list_partitions
 	mcp.AddTool(server, &mcp.Tool{
-		Name: "list_partitions",
+		Name: "list_kcp_partitions",
 		Description: `List Partitions visible from a kcp workspace.
 Partitions define how workspaces are distributed across shards for scalability.`,
 		InputSchema: map[string]any{
@@ -231,7 +231,7 @@ Partitions define how workspaces are distributed across shards for scalability.`
 			"properties": map[string]any{
 				"workspace": map[string]any{
 					"type":        "string",
-					"description": "Workspace ID (from list_workspaces)",
+					"description": "Workspace ID (from list_kcp_workspaces)",
 				},
 			},
 			"required": []string{"workspace"},
@@ -281,7 +281,7 @@ Partitions define how workspaces are distributed across shards for scalability.`
 
 	// list_partitionsets
 	mcp.AddTool(server, &mcp.Tool{
-		Name: "list_partitionsets",
+		Name: "list_kcp_partitionsets",
 		Description: `List PartitionSets visible from a kcp workspace.
 PartitionSets group partitions together for management.`,
 		InputSchema: map[string]any{
@@ -289,7 +289,7 @@ PartitionSets group partitions together for management.`,
 			"properties": map[string]any{
 				"workspace": map[string]any{
 					"type":        "string",
-					"description": "Workspace ID (from list_workspaces)",
+					"description": "Workspace ID (from list_kcp_workspaces)",
 				},
 			},
 			"required": []string{"workspace"},

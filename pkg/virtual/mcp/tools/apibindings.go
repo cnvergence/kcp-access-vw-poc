@@ -97,7 +97,7 @@ type ListAPIExportEndpointSlicesOutput struct {
 func registerAPIBindingTools(server *mcp.Server, scope Scope) {
 	// list_apibindings
 	mcp.AddTool(server, &mcp.Tool{
-		Name: "list_apibindings",
+		Name: "list_kcp_apibindings",
 		Description: `List APIBindings in a kcp workspace.
 APIBindings connect a workspace to APIs exported by another workspace via APIExport.
 They are how consumers access shared APIs in kcp's multi-tenant model.`,
@@ -106,7 +106,7 @@ They are how consumers access shared APIs in kcp's multi-tenant model.`,
 			"properties": map[string]any{
 				"workspace": map[string]any{
 					"type":        "string",
-					"description": "Workspace ID (from list_workspaces)",
+					"description": "Workspace ID (from list_kcp_workspaces)",
 				},
 			},
 			"required": []string{"workspace"},
@@ -163,7 +163,7 @@ They are how consumers access shared APIs in kcp's multi-tenant model.`,
 
 	// get_apibinding
 	mcp.AddTool(server, &mcp.Tool{
-		Name:        "get_apibinding",
+		Name:        "get_kcp_apibinding",
 		Description: `Get a specific APIBinding by name from a workspace.`,
 		InputSchema: map[string]any{
 			"type": "object",
@@ -199,7 +199,7 @@ They are how consumers access shared APIs in kcp's multi-tenant model.`,
 
 	// list_apiconversions
 	mcp.AddTool(server, &mcp.Tool{
-		Name: "list_apiconversions",
+		Name: "list_kcp_apiconversions",
 		Description: `List APIConversions in a kcp workspace.
 APIConversions define how to convert between different versions of an API.`,
 		InputSchema: map[string]any{
@@ -207,7 +207,7 @@ APIConversions define how to convert between different versions of an API.`,
 			"properties": map[string]any{
 				"workspace": map[string]any{
 					"type":        "string",
-					"description": "Workspace ID (from list_workspaces)",
+					"description": "Workspace ID (from list_kcp_workspaces)",
 				},
 			},
 			"required": []string{"workspace"},
@@ -247,7 +247,7 @@ APIConversions define how to convert between different versions of an API.`,
 
 	// list_apiexportendpointslices
 	mcp.AddTool(server, &mcp.Tool{
-		Name: "list_apiexportendpointslices",
+		Name: "list_kcp_apiexportendpointslices",
 		Description: `List APIExportEndpointSlices in a kcp workspace.
 APIExportEndpointSlices contain the endpoints where an APIExport's virtual workspace can be accessed.`,
 		InputSchema: map[string]any{
@@ -255,7 +255,7 @@ APIExportEndpointSlices contain the endpoints where an APIExport's virtual works
 			"properties": map[string]any{
 				"workspace": map[string]any{
 					"type":        "string",
-					"description": "Workspace ID (from list_workspaces)",
+					"description": "Workspace ID (from list_kcp_workspaces)",
 				},
 			},
 			"required": []string{"workspace"},

@@ -50,7 +50,7 @@ type GetAPIExportOutput struct {
 func registerAPIExportTools(server *mcp.Server, scope Scope) {
 	// list_apiexports
 	mcp.AddTool(server, &mcp.Tool{
-		Name: "list_apiexports",
+		Name: "list_kcp_apiexports",
 		Description: `List APIExports in a kcp workspace.
 APIExports define APIs that can be consumed by other workspaces via APIBindings.
 They are the foundation of kcp's multi-tenant API sharing model.`,
@@ -59,7 +59,7 @@ They are the foundation of kcp's multi-tenant API sharing model.`,
 			"properties": map[string]any{
 				"workspace": map[string]any{
 					"type":        "string",
-					"description": "Workspace ID (from list_workspaces)",
+					"description": "Workspace ID (from list_kcp_workspaces)",
 				},
 			},
 			"required": []string{"workspace"},
@@ -104,7 +104,7 @@ They are the foundation of kcp's multi-tenant API sharing model.`,
 
 	// get_apiexport
 	mcp.AddTool(server, &mcp.Tool{
-		Name:        "get_apiexport",
+		Name:        "get_kcp_apiexport",
 		Description: `Get a specific APIExport by name from a workspace.`,
 		InputSchema: map[string]any{
 			"type": "object",

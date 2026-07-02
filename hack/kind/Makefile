@@ -207,11 +207,7 @@ install-access-vw: build-image ## Build image + deploy access-vw
 
 .PHONY: install-mcp
 install-mcp: ## Install MCPRoute pointing to access-vw MCP endpoint
-	$(call info,Setting up MCP namespace and MCPRoute)
-	@$(KC) create namespace $(MCP_NS) --dry-run=client -o yaml | $(KC) apply -f -
-	# Note: kubernetes-mcp-server helm install removed — access-vw now serves MCP
-	# The MCPRoute points to access-vw in kcp-system via ReferenceGrant
-	$(call info,Applying MCPRoute + ReferenceGrant)
+	$(call info,Installing MCP Gateway and Route)
 	@$(KC) apply -k manifests/ai-gateway
 
 # ── Seed test data ───────────────────────────────────────────────────────────

@@ -20,7 +20,7 @@ spec:
     serviceAccount:
       enabled: true
     oidc:
-      issuerURL: https://keycloak-keycloakx-http.keycloak.svc.cluster.local:8443/realms/kcp
+      issuerURL: https://keycloak.kcp.example:8443/realms/kcp
       clientID: kcp
       usernameClaim: preferred_username
       usernamePrefix: "-"

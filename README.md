@@ -169,6 +169,13 @@ Authentication chain (in order):
 2. **Client certificate** — validated against a CA pool (if configured)
 3. **Trusted headers** — `X-Remote-User` / `X-Remote-Group` (only when `-trust-headers` is set, behind a front-proxy)
 
+The `-trust-headers` flag exists because access-vw serves two traffic paths:
+
+- **SCAR via front-proxy** — kcp's front-proxy authenticates the user and sets `X-Remote-User` / `X-Remote-Group` headers. access-vw trusts these headers without re-validating.
+- **MCP via AI Gateway** — the Envoy AI Gateway forwards the raw `Authorization: Bearer` token. access-vw validates it via `TokenReview` against kcp.
+
+> **Security note:** Trusting `X-Remote-User` headers is only safe when access-vw is not directly reachable by end users. In the current deployment, this is ensured by Kubernetes network policy (only front-proxy can reach the SCAR endpoint). For production hardening, consider replacing `-trust-headers` with client certificate verification (`-requestheader-client-ca-file`), which validates that the caller presenting `X-Remote-` headers holds a certificate signed by a trusted CA — the same pattern used by the Kubernetes API server aggregation layer.
+
 ## Deployment
 
 See [`config/README.md`](config/README.md) for production deployment instructions covering:

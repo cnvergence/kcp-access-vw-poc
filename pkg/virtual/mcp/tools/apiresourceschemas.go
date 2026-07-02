@@ -51,7 +51,7 @@ type GetAPIResourceSchemaOutput struct {
 func registerAPIResourceSchemaTools(server *mcp.Server, scope Scope) {
 	// list_apiresourceschemas
 	mcp.AddTool(server, &mcp.Tool{
-		Name: "list_apiresourceschemas",
+		Name: "list_kcp_apiresourceschemas",
 		Description: `List APIResourceSchemas in a kcp workspace.
 APIResourceSchemas define the schema (CRD-like) for custom resources that can be exported via APIExports.
 They contain the OpenAPI schema, validation rules, and other metadata for custom resources.`,
@@ -60,7 +60,7 @@ They contain the OpenAPI schema, validation rules, and other metadata for custom
 			"properties": map[string]any{
 				"workspace": map[string]any{
 					"type":        "string",
-					"description": "Workspace ID (from list_workspaces)",
+					"description": "Workspace ID (from list_kcp_workspaces)",
 				},
 			},
 			"required": []string{"workspace"},
@@ -120,7 +120,7 @@ They contain the OpenAPI schema, validation rules, and other metadata for custom
 
 	// get_apiresourceschema
 	mcp.AddTool(server, &mcp.Tool{
-		Name:        "get_apiresourceschema",
+		Name:        "get_kcp_apiresourceschema",
 		Description: `Get a specific APIResourceSchema by name from a workspace.`,
 		InputSchema: map[string]any{
 			"type": "object",

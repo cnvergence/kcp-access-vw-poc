@@ -130,7 +130,7 @@ SCOPE_UUID=$(${CURL} "${KEYCLOAK_URL}/admin/realms/${REALM}/client-scopes" \
   -H "${AUTH}" | jq -r '.[] | select(.name=="mcp-access") | .id')
 
 if [ -n "${SCOPE_UUID}" ] && [ "${SCOPE_UUID}" != "null" ]; then
-  info "Adding audience mapper to mcp-access scope..."
+  info "Adding audience mappers to mcp-access scope..."
   ${CURL} -X POST "${KEYCLOAK_URL}/admin/realms/${REALM}/client-scopes/${SCOPE_UUID}/protocol-mappers/models" \
     -H "${AUTH}" \
     -H "Content-Type: application/json" \
@@ -144,6 +144,22 @@ if [ -n "${SCOPE_UUID}" ] && [ "${SCOPE_UUID}" != "null" ]; then
         "access.token.claim": "true"
       }
     }' || info "Mapper may already exist"
+
+  # Add kcp audience so tokens from dynamically registered clients
+  # pass kcp OIDC validation (--oidc-client-id=kcp requires aud=kcp)
+  ${CURL} -X POST "${KEYCLOAK_URL}/admin/realms/${REALM}/client-scopes/${SCOPE_UUID}/protocol-mappers/models" \
+    -H "${AUTH}" \
+    -H "Content-Type: application/json" \
+    -d '{
+      "name": "kcp-audience",
+      "protocol": "openid-connect",
+      "protocolMapper": "oidc-audience-mapper",
+      "config": {
+        "included.client.audience": "kcp",
+        "id.token.claim": "true",
+        "access.token.claim": "true"
+      }
+    }' || info "kcp audience mapper may already exist"
 
   ${CURL} -X PUT "${KEYCLOAK_URL}/admin/realms/${REALM}/clients/${MCP_CLIENT_UUID}/default-client-scopes/${SCOPE_UUID}" \
     -H "${AUTH}" || info "Scope assignment may already exist"

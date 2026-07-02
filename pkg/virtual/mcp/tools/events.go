@@ -58,7 +58,7 @@ Example: "type=Warning,involvedObject.kind=Pod"`,
 			"properties": map[string]any{
 				"workspace": map[string]any{
 					"type":        "string",
-					"description": "Workspace ID (from list_workspaces)",
+					"description": "Workspace ID (from list_kcp_workspaces)",
 				},
 				"namespace": map[string]any{
 					"type":        "string",

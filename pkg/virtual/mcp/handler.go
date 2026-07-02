@@ -105,7 +105,7 @@ func serverForRequest(r *http.Request, g *graph.Graph, resolver auth.Resolver, o
 // message rather than a connection failure.
 func errorServer(msg string) *mcp.Server {
 	server := mcp.NewServer(&mcp.Implementation{
-		Name:    "kcp-access-mcp",
+		Name:    "kcp",
 		Version: "v1alpha1",
 	}, nil)
 

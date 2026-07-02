@@ -51,7 +51,7 @@ type GetWorkspaceTypeOutput struct {
 func registerTenancyTools(server *mcp.Server, scope Scope) {
 	// list_workspacetypes
 	mcp.AddTool(server, &mcp.Tool{
-		Name: "list_workspacetypes",
+		Name: "list_kcp_workspacetypes",
 		Description: `List WorkspaceTypes in a kcp workspace.
 WorkspaceTypes define templates for creating new workspaces, including:
 - Which initializers run when a workspace is created
@@ -62,7 +62,7 @@ WorkspaceTypes define templates for creating new workspaces, including:
 			"properties": map[string]any{
 				"workspace": map[string]any{
 					"type":        "string",
-					"description": "Workspace ID (from list_workspaces)",
+					"description": "Workspace ID (from list_kcp_workspaces)",
 				},
 			},
 			"required": []string{"workspace"},
@@ -115,7 +115,7 @@ WorkspaceTypes define templates for creating new workspaces, including:
 
 	// get_workspacetype
 	mcp.AddTool(server, &mcp.Tool{
-		Name:        "get_workspacetype",
+		Name:        "get_kcp_workspacetype",
 		Description: `Get a specific WorkspaceType by name from a workspace.`,
 		InputSchema: map[string]any{
 			"type": "object",

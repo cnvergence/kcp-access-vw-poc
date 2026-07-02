@@ -1,22 +1,33 @@
 # MCPRoute for Envoy AI Gateway.
-# Routes MCP traffic to access-vw (kcp-access-vw MCP endpoint).
-# Auth handled by access-vw (FrontProxy auth resolver), not at gateway level.
+# Routes MCP traffic to access-vw MCP endpoint with Keycloak OAuth.
+# Based on envoyproxy/ai-gateway/examples/mcp/mcp_oauth_keycloak.yaml
 ---
 apiVersion: aigateway.envoyproxy.io/v1beta1
 kind: MCPRoute
 metadata:
   name: kcp-mcp
-  namespace: mcp
+  namespace: kcp-system
 spec:
   parentRefs:
     - name: kcp-mcp-gateway
       kind: Gateway
       group: gateway.networking.k8s.io
-  # No securityPolicy here - let access-vw handle auth via its own OIDC validation
-  # The Authorization header is forwarded to the backend via forwardHeaders
+  securityPolicy:
+    oauth:
+      issuer: "https://keycloak.kcp.example:8443/realms/kcp"
+      jwks:
+        remoteJWKS:
+          # Use HTTP for JWKS fetch — Envoy doesn't have the Keycloak CA cert.
+          # JWKS is public key material, safe over in-cluster HTTP.
+          uri: http://keycloak-keycloakx-http.keycloak.svc.cluster.local/realms/kcp/protocol/openid-connect/certs
+      protectedResourceMetadata:
+        resource: "http://mcp.kcp.example:8080/mcp"
+        scopesSupported:
+          - openid
+          - profile
+          - email
   backendRefs:
-    # Use in-namespace ExternalName proxy since MCPRoute doesn't support cross-namespace refs
-    - name: access-vw-proxy
+    - name: access-vw
       kind: Service
       port: 9099
       path: /services/access-virtual-workspace/mcp
@@ -35,17 +46,13 @@ apiVersion: gateway.networking.k8s.io/v1
 kind: Gateway
 metadata:
   name: kcp-mcp-gateway
-  namespace: mcp
+  namespace: kcp-system
 spec:
   gatewayClassName: kcp-mcp
   listeners:
     - name: mcp
-      protocol: HTTPS
-      port: 8443
-      tls:
-        mode: Terminate
-        certificateRefs:
-          - name: mcp-gateway-tls
+      protocol: HTTP
+      port: 8080
   infrastructure:
     parametersRef:
       group: gateway.envoyproxy.io
@@ -56,7 +63,7 @@ apiVersion: gateway.envoyproxy.io/v1alpha1
 kind: EnvoyProxy
 metadata:
   name: kcp-mcp-proxy
-  namespace: mcp
+  namespace: kcp-system
 spec:
   logging:
     level:

@@ -78,7 +78,7 @@ type ListTerminatingWorkspacesOutput struct {
 func registerWorkspaceStatusTools(server *mcp.Server, scope Scope) {
 	// list_initializingworkspaces
 	mcp.AddTool(server, &mcp.Tool{
-		Name: "list_initializingworkspaces",
+		Name: "list_kcp_initializingworkspaces",
 		Description: `List InitializingWorkspaces in a kcp workspace.
 InitializingWorkspaces are child workspaces that are still being set up.
 They appear during workspace creation and disappear once initialization is complete.`,
@@ -87,7 +87,7 @@ They appear during workspace creation and disappear once initialization is compl
 			"properties": map[string]any{
 				"workspace": map[string]any{
 					"type":        "string",
-					"description": "Workspace ID (from list_workspaces)",
+					"description": "Workspace ID (from list_kcp_workspaces)",
 				},
 			},
 			"required": []string{"workspace"},
@@ -118,7 +118,7 @@ They appear during workspace creation and disappear once initialization is compl
 
 	// list_terminatingworkspaces
 	mcp.AddTool(server, &mcp.Tool{
-		Name: "list_terminatingworkspaces",
+		Name: "list_kcp_terminatingworkspaces",
 		Description: `List TerminatingWorkspaces in a kcp workspace.
 TerminatingWorkspaces are child workspaces that are being deleted.
 They appear during workspace deletion and disappear once termination is complete.`,
@@ -127,7 +127,7 @@ They appear during workspace deletion and disappear once termination is complete
 			"properties": map[string]any{
 				"workspace": map[string]any{
 					"type":        "string",
-					"description": "Workspace ID (from list_workspaces)",
+					"description": "Workspace ID (from list_kcp_workspaces)",
 				},
 			},
 			"required": []string{"workspace"},
@@ -158,7 +158,7 @@ They appear during workspace deletion and disappear once termination is complete
 
 	// list_child_workspaces - list Workspaces (children) within a parent workspace
 	mcp.AddTool(server, &mcp.Tool{
-		Name: "list_child_workspaces",
+		Name: "list_kcp_child_workspaces",
 		Description: `List child Workspaces within a parent kcp workspace.
 Returns all child workspaces visible from the given parent workspace.`,
 		InputSchema: map[string]any{
@@ -166,7 +166,7 @@ Returns all child workspaces visible from the given parent workspace.`,
 			"properties": map[string]any{
 				"workspace": map[string]any{
 					"type":        "string",
-					"description": "Parent workspace ID (from list_workspaces)",
+					"description": "Parent workspace ID (from list_kcp_workspaces)",
 				},
 			},
 			"required": []string{"workspace"},

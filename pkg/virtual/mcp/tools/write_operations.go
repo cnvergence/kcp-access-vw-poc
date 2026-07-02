@@ -137,7 +137,7 @@ The resource will be created in the specified workspace.`,
 			"properties": map[string]any{
 				"workspace": map[string]any{
 					"type":        "string",
-					"description": "Workspace ID (from list_workspaces)",
+					"description": "Workspace ID (from list_kcp_workspaces)",
 				},
 				"resource": map[string]any{
 					"type":        "string",
@@ -197,7 +197,7 @@ For partial updates, use patch_resource instead.`,
 			"properties": map[string]any{
 				"workspace": map[string]any{
 					"type":        "string",
-					"description": "Workspace ID (from list_workspaces)",
+					"description": "Workspace ID (from list_kcp_workspaces)",
 				},
 				"resource": map[string]any{
 					"type":        "string",
@@ -257,7 +257,7 @@ Example patch to update a ConfigMap data field:
 			"properties": map[string]any{
 				"workspace": map[string]any{
 					"type":        "string",
-					"description": "Workspace ID (from list_workspaces)",
+					"description": "Workspace ID (from list_kcp_workspaces)",
 				},
 				"apiVersion": map[string]any{
 					"type":        "string",
@@ -346,7 +346,7 @@ Optionally set gracePeriodSeconds for controlled termination (0 = immediate).`,
 			"properties": map[string]any{
 				"workspace": map[string]any{
 					"type":        "string",
-					"description": "Workspace ID (from list_workspaces)",
+					"description": "Workspace ID (from list_kcp_workspaces)",
 				},
 				"apiVersion": map[string]any{
 					"type":        "string",
@@ -431,7 +431,7 @@ If replicas is provided, scales the resource to that number.`,
 			"properties": map[string]any{
 				"workspace": map[string]any{
 					"type":        "string",
-					"description": "Workspace ID (from list_workspaces)",
+					"description": "Workspace ID (from list_kcp_workspaces)",
 				},
 				"apiVersion": map[string]any{
 					"type":        "string",

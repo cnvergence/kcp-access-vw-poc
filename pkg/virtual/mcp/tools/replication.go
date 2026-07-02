@@ -89,7 +89,7 @@ type ListLocationsOutput struct {
 func registerReplicationTools(server *mcp.Server, scope Scope) {
 	// list_synctargets
 	mcp.AddTool(server, &mcp.Tool{
-		Name: "list_synctargets",
+		Name: "list_kcp_synctargets",
 		Description: `List SyncTargets in a kcp workspace.
 SyncTargets represent physical clusters that have been registered with kcp for workload syncing.
 They define where workloads can be placed and what resources are available.`,
@@ -98,7 +98,7 @@ They define where workloads can be placed and what resources are available.`,
 			"properties": map[string]any{
 				"workspace": map[string]any{
 					"type":        "string",
-					"description": "Workspace ID (from list_workspaces)",
+					"description": "Workspace ID (from list_kcp_workspaces)",
 				},
 			},
 			"required": []string{"workspace"},
@@ -147,7 +147,7 @@ They define where workloads can be placed and what resources are available.`,
 
 	// list_placements
 	mcp.AddTool(server, &mcp.Tool{
-		Name: "list_placements",
+		Name: "list_kcp_placements",
 		Description: `List Placements in a kcp workspace.
 Placements define how workloads are scheduled to SyncTargets based on location selectors.`,
 		InputSchema: map[string]any{
@@ -155,7 +155,7 @@ Placements define how workloads are scheduled to SyncTargets based on location s
 			"properties": map[string]any{
 				"workspace": map[string]any{
 					"type":        "string",
-					"description": "Workspace ID (from list_workspaces)",
+					"description": "Workspace ID (from list_kcp_workspaces)",
 				},
 			},
 			"required": []string{"workspace"},
@@ -213,7 +213,7 @@ Placements define how workloads are scheduled to SyncTargets based on location s
 
 	// list_locations
 	mcp.AddTool(server, &mcp.Tool{
-		Name: "list_locations",
+		Name: "list_kcp_locations",
 		Description: `List Locations in a kcp workspace.
 Locations are logical groupings of SyncTargets, used for placement decisions.`,
 		InputSchema: map[string]any{
@@ -221,7 +221,7 @@ Locations are logical groupings of SyncTargets, used for placement decisions.`,
 			"properties": map[string]any{
 				"workspace": map[string]any{
 					"type":        "string",
-					"description": "Workspace ID (from list_workspaces)",
+					"description": "Workspace ID (from list_kcp_workspaces)",
 				},
 			},
 			"required": []string{"workspace"},

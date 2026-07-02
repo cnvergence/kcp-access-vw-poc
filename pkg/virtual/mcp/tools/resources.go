@@ -115,7 +115,7 @@ Use fieldSelector for filtering by fields (e.g., "status.phase=Running").`,
 			"properties": map[string]any{
 				"workspace": map[string]any{
 					"type":        "string",
-					"description": "Workspace ID (from list_workspaces)",
+					"description": "Workspace ID (from list_kcp_workspaces)",
 				},
 				"apiVersion": map[string]any{
 					"type":        "string",
@@ -238,7 +238,7 @@ See list_resources for common apiVersion+kind combinations.`,
 			"properties": map[string]any{
 				"workspace": map[string]any{
 					"type":        "string",
-					"description": "Workspace ID (from list_workspaces)",
+					"description": "Workspace ID (from list_kcp_workspaces)",
 				},
 				"apiVersion": map[string]any{
 					"type":        "string",

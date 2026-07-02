@@ -22,7 +22,7 @@ type ListWorkspacesOutput struct {
 
 func registerListWorkspaces(server *mcp.Server, scope Scope) {
 	mcp.AddTool(server, &mcp.Tool{
-		Name:        "list_workspaces",
+		Name:        "list_kcp_workspaces",
 		Description: "List kcp workspaces the authenticated user has access to. Returns workspace IDs and their API endpoints.",
 		InputSchema: map[string]any{
 			"type":       "object",

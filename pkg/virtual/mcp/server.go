@@ -9,7 +9,7 @@ import (
 // NewServer creates an MCP server with tools bound to the given scope.
 func NewServer(scope *WorkspaceScope) *mcp.Server {
 	server := mcp.NewServer(&mcp.Implementation{
-		Name:    "kcp-access-mcp",
+		Name:    "kcp",
 		Version: "v1alpha1",
 	}, nil)
 
