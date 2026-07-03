@@ -206,9 +206,33 @@ install-access-vw: build-image ## Build image + deploy access-vw
 # ── MCP server + AI Gateway route ───────────────────────────────────────────
 
 .PHONY: install-mcp
-install-mcp: ## Install MCPRoute pointing to access-vw MCP endpoint
+install-mcp: ## Install MCPRoute pointing to access-vw built-in MCP endpoint
 	$(call info,Installing MCP Gateway and Route)
 	@$(KC) apply -k manifests/ai-gateway
+
+.PHONY: install-mcp-upstream
+install-mcp-upstream: ## Install upstream kubernetes-mcp-server as alternative MCP backend
+	$(call info,Deploying kubernetes-mcp-server kubeconfig CR)
+	@$(KC) apply -k manifests/mcp-server
+	@$(KC) wait --for=jsonpath='{.status.phase}'=Ready kubeconfig/mcp-server-kubeconfig \
+		-n $(KCP_NS) --timeout=120s
+	$(call info,Installing kubernetes-mcp-server via Helm)
+	@helm upgrade --install mcp-server \
+		oci://ghcr.io/containers/charts/kubernetes-mcp-server \
+		--namespace $(KCP_NS) \
+		-f helm/mcp-values.yaml \
+		--wait --timeout 120s
+	$(call info,kubernetes-mcp-server deployed — update MCPRoute backendRef to point to it)
+	@echo "  To use this instead of the built-in MCP, update mcp-route.yaml backendRef:"
+	@echo "    name: mcp-server-kubernetes-mcp-server"
+	@echo "    port: 8080"
+	@echo "    path: /mcp"
+
+.PHONY: uninstall-mcp-upstream
+uninstall-mcp-upstream: ## Remove upstream kubernetes-mcp-server
+	$(call info,Removing kubernetes-mcp-server)
+	@helm uninstall mcp-server --namespace $(KCP_NS) 2>/dev/null || true
+	@$(KC) delete -k manifests/mcp-server --ignore-not-found
 
 # ── Seed test data ───────────────────────────────────────────────────────────
 

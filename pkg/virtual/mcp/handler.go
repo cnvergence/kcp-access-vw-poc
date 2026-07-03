@@ -78,13 +78,8 @@ func serverForRequest(r *http.Request, g *graph.Graph, resolver auth.Resolver, o
 		return errorServer("missing bearer token")
 	}
 
-	if len(token) > 20 {
-		log.Printf("mcp: authenticated user=%s groups=%v token=%s...%s (len=%d)",
-			id.Username, id.Groups, token[:10], token[len(token)-5:], len(token))
-	} else {
-		log.Printf("mcp: authenticated user=%s groups=%v token=<short> (len=%d)",
-			id.Username, id.Groups, len(token))
-	}
+	log.Printf("mcp: authenticated user=%s groups=%v token_len=%d",
+		id.Username, id.Groups, len(token))
 
 	clusters := g.ClustersFor(id.Username, id.Groups)
 	log.Printf("mcp: user=%s has access to %d workspaces", id.Username, len(clusters))

@@ -38,3 +38,4 @@ hack/kind/admin.kubeconfig
 # Editor/IDE
 # .idea/
 # .vscode/
+hack/kind/certs/
