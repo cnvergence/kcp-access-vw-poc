@@ -1,6 +1,13 @@
 # MCPRoute for Envoy AI Gateway.
 # Routes MCP traffic to access-vw MCP endpoint with Keycloak OAuth.
-# Based on envoyproxy/ai-gateway/examples/mcp/mcp_oauth_keycloak.yaml
+#
+# NOTE: In the ADR 007 target design, this route would go through kcp
+# front-proxy (frontproxy-front-proxy:6443) instead of directly to
+# access-vw. Front-proxy strips the Authorization header after OIDC
+# validation, but the MCP handler needs the bearer token for downstream
+# K8s API calls. Moving to front-proxy routing requires switching to
+# impersonation (Impersonate-User headers) for downstream calls.
+# See site/architecture.html "POC vs ADR target design" for details.
 ---
 apiVersion: aigateway.envoyproxy.io/v1beta1
 kind: MCPRoute

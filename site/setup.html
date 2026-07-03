@@ -1,0 +1,127 @@
+    <!doctype html>
+    <html lang="en">
+      <head>
+        <meta charset="utf-8" />
+        <meta name="viewport" content="width=device-width, initial-scale=1" />
+        <title>Local setup guide · kcp-access-vw</title>
+        <link rel="stylesheet" href="assets/styles.css" />
+      </head>
+      <body>
+        <header class="site-header">
+          <div class="header-inner">
+            <a class="brand" href="index.html">
+              
+              <span>kcp-access-vw POC</span>
+            </a>
+            <nav class="top-links" aria-label="Top links">
+              <a href="https://github.com/cnvergence/kcp-access-vw" target="_blank" rel="noreferrer">GitHub</a>
+              <a href="https://github.com/cnvergence/kcp-access-vw#readme" target="_blank" rel="noreferrer">README</a>
+              <a href="setup.html">Setup Guide</a>
+            </nav>
+          </div>
+        </header>
+
+        <div class="guide-layout">
+          <main class="main-content">
+            <h1 class="page-title">Local setup guide</h1>
+            <p class="intro">Deploy the full stack into a local Kind cluster.</p>
+
+    <section class="section">
+      <h2>Prerequisites</h2>
+      <div class="two-col">
+        <article class="mini-card"><strong>Core tools</strong><p>Kind, <code>kubectl</code>, Helm, <code>jq</code>, Docker, and Go are required to build and deploy the stack.</p></article>
+        <article class="mini-card"><strong>Local TLS helpers</strong><p><code>mkcert</code> is recommended when you want to trust local HTTPS endpoints cleanly during client testing.</p></article>
+      </div>
+    </section>
+
+    <section class="section">
+      <h2>One command setup</h2>
+      <div class="example">
+        <div class="example-title"><span>Bootstrap</span></div>
+        <pre><code>make kind-setup</code></pre>
+      </div>
+      <p>This delegates to <code>make -C hack/kind setup</code> and installs the full <a href="https://github.com/cnvergence/pm-architecture/blob/ec1fc0d334de2702dbcfb3070d6d01bc2031bbbf/adr/007-mcp-server-for-kcp-and-platform-mesh.md" target="_blank" rel="noreferrer">ADR 007</a> stack in order.</p>
+    </section>
+
+    <section class="section">
+      <h2>What gets deployed</h2>
+      <div class="table-wrap"><table>
+        <thead><tr><th>Component</th><th>Purpose</th></tr></thead>
+        <tbody>
+          <tr><td>kcp</td><td>Workspace control plane, OIDC validation, front-proxy, and logical cluster endpoints</td></tr>
+          <tr><td>Keycloak</td><td>OIDC provider with test users, dynamic client registration, and the <code>aud: kcp</code> audience mapping</td></tr>
+          <tr><td>Envoy AI Gateway</td><td>MCP-aware ingress path with HTTPS, OAuth integration, and token forwarding</td></tr>
+          <tr><td>access-vw</td><td>SCAR + MCP backend backed by the in-memory permission graph</td></tr>
+        </tbody>
+      </table></div>
+    </section>
+
+    <section class="section">
+      <h2>Connecting an MCP client</h2>
+      <div class="example">
+        <div class="example-title"><span>Copilot CLI / Claude Code</span></div>
+        <pre><code># 1. Generate a scoped kubeconfig
+make mcp-demo
+
+# 2. Run the MCP server yourself
+kubernetes-mcp-server --kubeconfig=alice.kubeconfig --cluster-provider=kcp --toolsets=core,kcp --port 8080
+
+# 3. Point your MCP client at it
+{
+  "mcpServers": {
+    "kcp-access": {
+      "type": "http",
+      "url": "http://localhost:8080/mcp"
+    }
+  }
+}</code></pre>
+      </div>
+      <p>Copilot CLI can also manage the MCP server as a local process via <code>~/.copilot/mcp-config.json</code>. Claude Code can consume the same MCP endpoint.</p>
+    </section>
+
+    <section class="section">
+      <h2>Testing</h2>
+      <div class="example">
+        <div class="example-title"><span>Useful commands</span></div>
+        <pre><code>make -C hack/kind scar USER=alice
+make -C hack/kind get-token USER=alice
+
+# from inside hack/kind/:
+make scar USER=alice
+make get-token USER=alice</code></pre>
+      </div>
+      <p>Use <code>scar</code> to validate the workspace list for a user, and <code>get-token</code> to inspect or reuse a real OIDC token.</p>
+    </section>
+
+    <section class="section">
+      <h2>Teardown</h2>
+      <div class="example">
+        <div class="example-title"><span>Cleanup</span></div>
+        <pre><code>make kind-teardown</code></pre>
+      </div>
+    </section>
+
+            <nav class="page-nav" aria-label="Pagination"><a href="mcp.html">← MCP tool catalog</a><a href="reference.html">Reference →</a></nav>
+          </main>
+          <aside class="sidebar" aria-label="Guide">
+            <p class="sidebar-title">Guide</p>
+            <ul class="nav-list">
+              <li><a href="index.html">Start here</a></li>
+              <li><a href="architecture.html">Architecture</a></li>
+              <li><a href="auth.html">Authentication</a></li>
+              <li><a href="scar.html">SCAR API</a></li>
+              <li><a href="mcp.html">MCP tools</a></li>
+              <li><a href="setup.html" aria-current="page">Setup</a></li>
+              <li><a href="reference.html">Reference</a></li>
+            </ul>
+          </aside>
+        </div>
+
+        <footer class="footer">
+          <div class="footer-inner">
+            <span>kcp-access-vw docs · SCAR, RBAC indexing, and MCP scoping for kcp.</span>
+            <span><a href="scar.html">SCAR API</a> · <a href="mcp.html">Tool catalog</a> · <a href="reference.html">Reference</a></span>
+          </div>
+        </footer>
+      </body>
+    </html>

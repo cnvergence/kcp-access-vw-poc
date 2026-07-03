@@ -1,0 +1,192 @@
+    <!doctype html>
+    <html lang="en">
+      <head>
+        <meta charset="utf-8" />
+        <meta name="viewport" content="width=device-width, initial-scale=1" />
+        <title>System architecture · kcp-access-vw</title>
+        <link rel="stylesheet" href="assets/styles.css" />
+      </head>
+      <body>
+        <header class="site-header">
+          <div class="header-inner">
+            <a class="brand" href="index.html">
+              
+              <span>kcp-access-vw POC</span>
+            </a>
+            <nav class="top-links" aria-label="Top links">
+              <a href="https://github.com/cnvergence/kcp-access-vw" target="_blank" rel="noreferrer">GitHub</a>
+              <a href="https://github.com/cnvergence/kcp-access-vw#readme" target="_blank" rel="noreferrer">README</a>
+              <a href="setup.html">Setup Guide</a>
+            </nav>
+          </div>
+        </header>
+
+        <div class="guide-layout">
+          <main class="main-content">
+            <h1 class="page-title">System architecture</h1>
+            <p class="intro">The <a href="https://github.com/cnvergence/pm-architecture/blob/ec1fc0d334de2702dbcfb3070d6d01bc2031bbbf/adr/007-mcp-server-for-kcp-and-platform-mesh.md" target="_blank" rel="noreferrer">ADR 007</a> flow has two faces: SCAR for fast workspace discovery, and MCP for per-user tool exposure through an AI gateway.</p>
+
+    <section class="section">
+
+<div class="diagram-wrap">
+  <svg viewBox="0 0 780 600" width="100%" role="img" aria-labelledby="arch-title arch-desc" xmlns="http://www.w3.org/2000/svg">
+    <title id="arch-title">access-vw system architecture</title>
+    <desc id="arch-desc">OAuth between MCP client and Keycloak, bearer token through Envoy AI Gateway to access-vw, and RBAC watching from access-vw into the kcp cluster.</desc>
+    <defs>
+      <marker id="arrow-blue" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+        <path d="M 0 0 L 10 5 L 0 10 z" fill="#4a90d9" />
+      </marker>
+      <marker id="arrow-teal" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+        <path d="M 0 0 L 10 5 L 0 10 z" fill="#48b5c4" />
+      </marker>
+      <marker id="arrow-green" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+        <path d="M 0 0 L 10 5 L 0 10 z" fill="#6bbd5b" />
+      </marker>
+      <linearGradient id="grad-header" x1="0" y1="0" x2="1" y2="0">
+        <stop offset="0%" stop-color="#4a90d9"/>
+        <stop offset="50%" stop-color="#48b5c4"/>
+        <stop offset="100%" stop-color="#6bbd5b"/>
+      </linearGradient>
+    </defs>
+
+    <!-- MCP Client -->
+    <rect x="30" y="30" rx="14" ry="14" width="160" height="80" fill="#eaf2fb" stroke="#4a90d9" stroke-width="2"/>
+    <text x="110" y="65" text-anchor="middle" font-family="Inter, sans-serif" font-weight="700" font-size="15" fill="#1a1c2e">MCP Client</text>
+    <text x="110" y="85" text-anchor="middle" font-family="Inter, sans-serif" font-weight="500" font-size="12" fill="#5a5e78">Copilot · Claude</text>
+
+    <!-- Keycloak -->
+    <rect x="560" y="30" rx="14" ry="14" width="180" height="80" fill="#eaf8f0" stroke="#6bbd5b" stroke-width="2"/>
+    <text x="650" y="65" text-anchor="middle" font-family="Inter, sans-serif" font-weight="700" font-size="15" fill="#1a1c2e">Keycloak</text>
+    <text x="650" y="85" text-anchor="middle" font-family="Inter, sans-serif" font-weight="500" font-size="12" fill="#5a5e78">OIDC · OAuth 2.1</text>
+
+    <!-- OAuth arrow (bidirectional) -->
+    <line x1="190" y1="60" x2="558" y2="60" stroke="#48b5c4" stroke-width="2" marker-end="url(#arrow-teal)"/>
+    <line x1="558" y1="80" x2="190" y2="80" stroke="#48b5c4" stroke-width="1.5" stroke-dasharray="5 4" marker-end="url(#arrow-teal)"/>
+    <rect x="330" y="52" rx="4" ry="4" width="62" height="20" fill="#e8f6f8"/>
+    <text x="361" y="67" text-anchor="middle" font-family="Inter, sans-serif" font-weight="700" font-size="12" fill="#48b5c4">OAuth</text>
+
+    <!-- AI Gateway -->
+    <rect x="30" y="160" rx="14" ry="14" width="160" height="72" fill="#f3f4f7" stroke="#dfe2eb" stroke-width="2"/>
+    <text x="110" y="192" text-anchor="middle" font-family="Inter, sans-serif" font-weight="700" font-size="15" fill="#1a1c2e">AI Gateway</text>
+    <text x="110" y="212" text-anchor="middle" font-family="Inter, sans-serif" font-weight="500" font-size="12" fill="#5a5e78">Envoy · HTTP :8080</text>
+
+    <!-- MCP Client to Gateway -->
+    <line x1="110" y1="110" x2="110" y2="158" stroke="#4a90d9" stroke-width="2" marker-end="url(#arrow-blue)"/>
+    <text x="135" y="140" font-family="Inter, sans-serif" font-weight="600" font-size="11" fill="#4a90d9">Bearer token</text>
+
+    <!-- kcp front-proxy -->
+    <rect x="30" y="282" rx="14" ry="14" width="160" height="72" fill="#f3f4f7" stroke="#48b5c4" stroke-width="2"/>
+    <text x="110" y="314" text-anchor="middle" font-family="Inter, sans-serif" font-weight="700" font-size="15" fill="#1a1c2e">kcp front-proxy</text>
+    <text x="110" y="334" text-anchor="middle" font-family="Inter, sans-serif" font-weight="500" font-size="12" fill="#5a5e78">OIDC validation</text>
+
+    <!-- Gateway to front-proxy -->
+    <line x1="110" y1="232" x2="110" y2="280" stroke="#4a90d9" stroke-width="2" marker-end="url(#arrow-blue)"/>
+    <text x="135" y="262" font-family="Inter, sans-serif" font-weight="600" font-size="11" fill="#4a90d9">forward</text>
+
+    <!-- access-vw panel -->
+    <rect x="250" y="200" rx="16" ry="16" width="490" height="240" fill="#ffffff" stroke="#4a90d9" stroke-width="2" stroke-opacity="0.4"/>
+    <rect x="250" y="200" rx="16" ry="16" width="490" height="32" fill="url(#grad-header)" opacity="0.1"/>
+    <text x="495" y="223" text-anchor="middle" font-family="Inter, sans-serif" font-weight="800" font-size="14" fill="#1a1c2e">access-vw :9099</text>
+
+    <!-- MCP Handler -->
+    <rect x="290" y="252" rx="10" ry="10" width="140" height="54" fill="#eaf2fb" stroke="#4a90d9" stroke-width="1.5"/>
+    <text x="360" y="284" text-anchor="middle" font-family="Inter, sans-serif" font-weight="700" font-size="13" fill="#1a1c2e">MCP Handler</text>
+
+    <!-- SCAR Handler -->
+    <rect x="550" y="252" rx="10" ry="10" width="140" height="54" fill="#eaf2fb" stroke="#4a90d9" stroke-width="1.5"/>
+    <text x="620" y="284" text-anchor="middle" font-family="Inter, sans-serif" font-weight="700" font-size="13" fill="#1a1c2e">SCAR Handler</text>
+
+    <!-- Permission Graph -->
+    <rect x="350" y="340" rx="12" ry="12" width="270" height="60" fill="#f3f4f7" stroke="#48b5c4" stroke-width="2"/>
+    <text x="485" y="367" text-anchor="middle" font-family="Inter, sans-serif" font-weight="700" font-size="13" fill="#1a1c2e">In-memory Permission Graph</text>
+    <text x="485" y="387" text-anchor="middle" font-family="Inter, sans-serif" font-weight="500" font-size="11" fill="#5a5e78">RBAC watcher · subject → clusters</text>
+
+    <!-- Front-proxy to access-vw (X-Remote-User headers) -->
+    <line x1="190" y1="318" x2="288" y2="280" stroke="#48b5c4" stroke-width="2" marker-end="url(#arrow-teal)"/>
+    <text x="230" y="288" font-family="Inter, sans-serif" font-weight="600" font-size="10" fill="#48b5c4">X-Remote-User</text>
+
+    <!-- Handlers to graph arrows -->
+    <line x1="360" y1="306" x2="420" y2="338" stroke="#5a5e78" stroke-width="1.5" marker-end="url(#arrow-teal)"/>
+    <line x1="620" y1="306" x2="555" y2="338" stroke="#5a5e78" stroke-width="1.5" marker-end="url(#arrow-teal)"/>
+
+    <!-- Graph to kcp arrow -->
+    <line x1="485" y1="400" x2="485" y2="488" stroke="#6bbd5b" stroke-width="2" marker-end="url(#arrow-green)"/>
+    <text x="512" y="445" font-family="Inter, sans-serif" font-weight="600" font-size="11" fill="#6bbd5b">watches</text>
+    <text x="512" y="460" font-family="Inter, sans-serif" font-weight="500" font-size="11" fill="#6bbd5b">CRBs · RBs</text>
+
+    <!-- kcp cluster -->
+    <rect x="375" y="490" rx="14" ry="14" width="220" height="80" fill="#eaf8f0" stroke="#6bbd5b" stroke-width="2"/>
+    <text x="485" y="525" text-anchor="middle" font-family="Inter, sans-serif" font-weight="700" font-size="15" fill="#1a1c2e">kcp cluster</text>
+    <text x="485" y="545" text-anchor="middle" font-family="Inter, sans-serif" font-weight="500" font-size="12" fill="#5a5e78">workspaces · RBAC</text>
+  </svg>
+</div>
+
+    </section>
+
+    <section class="section">
+      <h2>Components</h2>
+      <div class="three-col">
+        <article class="mini-card"><strong>MCP Client</strong><p>Claude Code, Copilot, or any MCP-capable client that authenticates with Keycloak and speaks MCP over HTTP.</p></article>
+        <article class="mini-card"><strong>AI Gateway</strong><p>Envoy receives MCP traffic, enforces OAuth, and forwards the caller's <code>Authorization</code> header to the backend path.</p></article>
+        <article class="mini-card"><strong>Keycloak</strong><p>OIDC issuer for user login, dynamic client registration, and access tokens with the <code>aud: kcp</code> audience.</p></article>
+        <article class="mini-card"><strong>access-vw</strong><p>A single HTTP service exposing both the MCP handler and the SCAR handler on <code>:9099</code>.</p></article>
+        <article class="mini-card"><strong>Permission graph</strong><p>An in-memory subject-to-cluster index built from watched <code>ClusterRoleBindings</code> and <code>RoleBindings</code>.</p></article>
+        <article class="mini-card"><strong>kcp cluster</strong><p>The source of truth for identity validation and workspace RBAC state across bound workspaces.</p></article>
+      </div>
+    </section>
+
+    <section class="section">
+      <h2>Two traffic paths</h2>
+      <div class="two-col">
+        <article class="mini-card">
+          <strong>SCAR via front-proxy</strong>
+          <p>The kcp front-proxy authenticates the caller first, injects <code>X-Remote-User</code> and <code>X-Remote-Group</code>, and forwards the SCAR request to access-vw.</p>
+        </article>
+        <article class="mini-card">
+          <strong>MCP via AI Gateway</strong>
+          <p>Envoy forwards the raw bearer token. access-vw validates it with kcp <code>TokenReview</code>, resolves the user, and scopes the MCP tools to that user's workspaces.</p>
+        </article>
+      </div>
+    </section>
+
+    <section class="section">
+      <h2>POC vs ADR target design</h2>
+      <div class="note">
+        <p><strong>Note:</strong> In the <a href="https://github.com/cnvergence/pm-architecture/blob/ec1fc0d334de2702dbcfb3070d6d01bc2031bbbf/adr/007-mcp-server-for-kcp-and-platform-mesh.md" target="_blank" rel="noreferrer">ADR 007</a> target design, MCP traffic goes through the kcp front-proxy: AI Gateway → front-proxy → access-vw. Front-proxy handles OIDC validation and injects <code>X-Remote-User</code> headers, eliminating the need for <code>TokenReview</code> and the <code>aud: kcp</code> audience mapper.</p>
+        <p>The POC routes the AI Gateway directly to access-vw instead. The reason: kcp's front-proxy <strong>strips the <code>Authorization</code> header</strong> after OIDC validation (standard K8s aggregation behavior). The MCP handler needs the bearer token for downstream K8s API calls to workspace endpoints. Moving to front-proxy routing requires switching the MCP handler from direct token passthrough to <strong>impersonation</strong> (<code>Impersonate-User</code> / <code>Impersonate-Group</code> headers backed by a privileged service account).</p>
+        <p><strong>Next step:</strong> Refactor <code>ClientFactory</code> to use impersonation for downstream calls, then re-route through front-proxy.</p>
+      </div>
+    </section>
+
+    <section class="section">
+      <h2>Permission graph</h2>
+      <p>The graph is populated by the RBAC provider, which watches workspaces that opt in by binding the <code>access.kcp.io</code> APIExport. Every relevant subject — users, groups, and service accounts — is mapped to the logical clusters it can reach.</p>
+      <div class="note">
+        <p><strong>Why this design?</strong> The expensive work happens continuously in the background. SCAR and MCP requests become cheap lookups against already-indexed RBAC state.</p>
+      </div>
+    </section>
+
+            <nav class="page-nav" aria-label="Pagination"><a href="index.html">← Start here</a><a href="auth.html">Authentication flow →</a></nav>
+          </main>
+          <aside class="sidebar" aria-label="Guide">
+            <p class="sidebar-title">Guide</p>
+            <ul class="nav-list">
+              <li><a href="index.html">Start here</a></li>
+              <li><a href="architecture.html" aria-current="page">Architecture</a></li>
+              <li><a href="auth.html">Authentication</a></li>
+              <li><a href="scar.html">SCAR API</a></li>
+              <li><a href="mcp.html">MCP tools</a></li>
+              <li><a href="setup.html">Setup</a></li>
+              <li><a href="reference.html">Reference</a></li>
+            </ul>
+          </aside>
+        </div>
+
+        <footer class="footer">
+          <div class="footer-inner">
+            <span>kcp-access-vw docs · SCAR, RBAC indexing, and MCP scoping for kcp.</span>
+            <span><a href="scar.html">SCAR API</a> · <a href="mcp.html">Tool catalog</a> · <a href="reference.html">Reference</a></span>
+          </div>
+        </footer>
+      </body>
+    </html>

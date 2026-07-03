@@ -1,0 +1,184 @@
+    <!doctype html>
+    <html lang="en">
+      <head>
+        <meta charset="utf-8" />
+        <meta name="viewport" content="width=device-width, initial-scale=1" />
+        <title>Authentication flow · kcp-access-vw</title>
+        <link rel="stylesheet" href="assets/styles.css" />
+      </head>
+      <body>
+        <header class="site-header">
+          <div class="header-inner">
+            <a class="brand" href="index.html">
+              
+              <span>kcp-access-vw POC</span>
+            </a>
+            <nav class="top-links" aria-label="Top links">
+              <a href="https://github.com/cnvergence/kcp-access-vw" target="_blank" rel="noreferrer">GitHub</a>
+              <a href="https://github.com/cnvergence/kcp-access-vw#readme" target="_blank" rel="noreferrer">README</a>
+              <a href="setup.html">Setup Guide</a>
+            </nav>
+          </div>
+        </header>
+
+        <div class="guide-layout">
+          <main class="main-content">
+            <h1 class="page-title">Authentication flow</h1>
+            <p class="intro">How identity flows from an MCP client through to kcp workspace access.</p>
+
+    <section class="section">
+
+<div class="diagram-wrap">
+  <svg viewBox="0 0 900 820" width="100%" role="img" aria-labelledby="auth-title auth-desc" xmlns="http://www.w3.org/2000/svg">
+    <title id="auth-title">MCP authentication sequence</title>
+    <desc id="auth-desc">OAuth discovery, dynamic client registration, authorization code flow, MCP request forwarding, TokenReview, and scoped tool response.</desc>
+    <defs>
+      <marker id="seq-arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+        <path d="M 0 0 L 10 5 L 0 10 z" fill="#4a90d9" />
+      </marker>
+      <marker id="seq-arrow-ret" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+        <path d="M 0 0 L 10 5 L 0 10 z" fill="#7fa5f0" />
+      </marker>
+    </defs>
+
+    <!-- Actor boxes at top -->
+    <g>
+      <rect x="30" y="10" rx="8" ry="8" width="120" height="40" fill="#eaf2fb" stroke="#4a90d9" stroke-width="1.5"/>
+      <text x="90" y="35" text-anchor="middle" font-family="Inter, sans-serif" font-weight="700" font-size="13" fill="#1a1c2e">MCP Client</text>
+
+      <rect x="210" y="10" rx="8" ry="8" width="120" height="40" fill="#eaf2fb" stroke="#4a90d9" stroke-width="1.5"/>
+      <text x="270" y="35" text-anchor="middle" font-family="Inter, sans-serif" font-weight="700" font-size="13" fill="#1a1c2e">AI Gateway</text>
+
+      <rect x="390" y="10" rx="8" ry="8" width="120" height="40" fill="#eaf2fb" stroke="#4a90d9" stroke-width="1.5"/>
+      <text x="450" y="35" text-anchor="middle" font-family="Inter, sans-serif" font-weight="700" font-size="13" fill="#1a1c2e">Keycloak</text>
+
+      <rect x="570" y="10" rx="8" ry="8" width="120" height="40" fill="#eaf2fb" stroke="#4a90d9" stroke-width="1.5"/>
+      <text x="630" y="35" text-anchor="middle" font-family="Inter, sans-serif" font-weight="700" font-size="13" fill="#1a1c2e">access-vw</text>
+
+      <rect x="750" y="10" rx="8" ry="8" width="120" height="40" fill="#eaf2fb" stroke="#4a90d9" stroke-width="1.5"/>
+      <text x="810" y="35" text-anchor="middle" font-family="Inter, sans-serif" font-weight="700" font-size="13" fill="#1a1c2e">kcp</text>
+    </g>
+
+    <!-- Lifelines -->
+    <g>
+      <line x1="90" y1="50" x2="90" y2="790" stroke="#c8cee0" stroke-width="1.5" stroke-dasharray="6 5"/>
+      <line x1="270" y1="50" x2="270" y2="790" stroke="#c8cee0" stroke-width="1.5" stroke-dasharray="6 5"/>
+      <line x1="450" y1="50" x2="450" y2="790" stroke="#c8cee0" stroke-width="1.5" stroke-dasharray="6 5"/>
+      <line x1="630" y1="50" x2="630" y2="790" stroke="#c8cee0" stroke-width="1.5" stroke-dasharray="6 5"/>
+      <line x1="810" y1="50" x2="810" y2="790" stroke="#c8cee0" stroke-width="1.5" stroke-dasharray="6 5"/>
+    </g>
+
+    <!-- Phase label: OAuth -->
+    <rect x="12" y="80" rx="4" ry="4" width="60" height="22" fill="#48b5c4" rx="4"/>
+    <text x="42" y="95" text-anchor="middle" font-family="Inter, sans-serif" font-weight="700" font-size="10" fill="#fff">OAUTH</text>
+
+    <!-- 1. OAuth discovery -->
+    <line x1="90" y1="115" x2="450" y2="115" stroke="#4a90d9" stroke-width="2" marker-end="url(#seq-arrow)"/>
+    <text x="270" y="108" text-anchor="middle" font-family="Inter, sans-serif" font-weight="600" font-size="12" fill="#1a1c2e">OAuth discovery</text>
+    <line x1="450" y1="140" x2="90" y2="140" stroke="#7fa5f0" stroke-width="1.5" stroke-dasharray="5 4" marker-end="url(#seq-arrow-ret)"/>
+    <text x="270" y="155" text-anchor="middle" font-family="Inter, sans-serif" font-weight="500" font-size="11" fill="#5a5e78">Auth server metadata</text>
+
+    <!-- 2. Dynamic client registration -->
+    <line x1="90" y1="190" x2="450" y2="190" stroke="#4a90d9" stroke-width="2" marker-end="url(#seq-arrow)"/>
+    <text x="270" y="183" text-anchor="middle" font-family="Inter, sans-serif" font-weight="600" font-size="12" fill="#1a1c2e">Dynamic client registration</text>
+    <line x1="450" y1="215" x2="90" y2="215" stroke="#7fa5f0" stroke-width="1.5" stroke-dasharray="5 4" marker-end="url(#seq-arrow-ret)"/>
+    <text x="270" y="230" text-anchor="middle" font-family="Inter, sans-serif" font-weight="500" font-size="11" fill="#5a5e78">client_id</text>
+
+    <!-- 3. Auth code flow -->
+    <line x1="90" y1="265" x2="450" y2="265" stroke="#4a90d9" stroke-width="2" marker-end="url(#seq-arrow)"/>
+    <text x="270" y="258" text-anchor="middle" font-family="Inter, sans-serif" font-weight="600" font-size="12" fill="#1a1c2e">Authorization code flow</text>
+    <line x1="450" y1="290" x2="90" y2="290" stroke="#7fa5f0" stroke-width="1.5" stroke-dasharray="5 4" marker-end="url(#seq-arrow-ret)"/>
+    <text x="270" y="305" text-anchor="middle" font-family="Inter, sans-serif" font-weight="600" font-size="11" fill="#48b5c4">Access token (aud: kcp)</text>
+
+    <!-- Phase label: MCP -->
+    <rect x="12" y="340" rx="4" ry="4" width="44" height="22" fill="#4a90d9"/>
+    <text x="34" y="355" text-anchor="middle" font-family="Inter, sans-serif" font-weight="700" font-size="10" fill="#fff">MCP</text>
+
+    <!-- 4. POST /mcp -->
+    <line x1="90" y1="380" x2="270" y2="380" stroke="#4a90d9" stroke-width="2" marker-end="url(#seq-arrow)"/>
+    <text x="180" y="373" text-anchor="middle" font-family="Inter, sans-serif" font-weight="600" font-size="12" fill="#1a1c2e">POST /mcp</text>
+    <text x="180" y="396" text-anchor="middle" font-family="Inter, sans-serif" font-weight="500" font-size="10" fill="#5a5e78">+ Bearer token</text>
+
+    <!-- 5. Forward to access-vw -->
+    <line x1="270" y1="420" x2="630" y2="420" stroke="#4a90d9" stroke-width="2" marker-end="url(#seq-arrow)"/>
+    <text x="450" y="413" text-anchor="middle" font-family="Inter, sans-serif" font-weight="600" font-size="12" fill="#1a1c2e">Forward Authorization header</text>
+
+    <!-- Phase label: AUTH -->
+    <rect x="12" y="455" rx="4" ry="4" width="48" height="22" fill="#6bbd5b"/>
+    <text x="36" y="470" text-anchor="middle" font-family="Inter, sans-serif" font-weight="700" font-size="10" fill="#fff">AUTH</text>
+
+    <!-- 6. TokenReview -->
+    <line x1="630" y1="490" x2="810" y2="490" stroke="#4a90d9" stroke-width="2" marker-end="url(#seq-arrow)"/>
+    <text x="720" y="483" text-anchor="middle" font-family="Inter, sans-serif" font-weight="700" font-size="12" fill="#1a1c2e">TokenReview</text>
+    <line x1="810" y1="520" x2="630" y2="520" stroke="#7fa5f0" stroke-width="1.5" stroke-dasharray="5 4" marker-end="url(#seq-arrow-ret)"/>
+    <text x="720" y="537" text-anchor="middle" font-family="Inter, sans-serif" font-weight="600" font-size="12" fill="#48b5c4">user = alice, groups = [...]</text>
+
+    <!-- 7. Permission graph (local) -->
+    <rect x="595" y="570" rx="10" ry="10" width="180" height="50" fill="#f3f4f7" stroke="#dfe2eb" stroke-width="1.5"/>
+    <text x="685" y="592" text-anchor="middle" font-family="Inter, sans-serif" font-weight="600" font-size="12" fill="#1a1c2e">graph.ClustersFor(alice)</text>
+    <text x="685" y="610" text-anchor="middle" font-family="Inter, sans-serif" font-weight="500" font-size="11" fill="#5a5e78">→ [workspace1, ws2]</text>
+
+    <!-- Note: local lookup -->
+    <rect x="590" y="636" rx="8" ry="8" width="260" height="42" fill="#eaf8f0" stroke="#6bbd5b" stroke-width="1.5"/>
+    <text x="720" y="654" text-anchor="middle" font-family="Inter, sans-serif" font-weight="600" font-size="11" fill="#3a7a2e">Permission graph lookup is local.</text>
+    <text x="720" y="670" text-anchor="middle" font-family="Inter, sans-serif" font-weight="500" font-size="11" fill="#3a7a2e">Only TokenReview calls kcp.</text>
+
+    <!-- 8. Response back -->
+    <line x1="630" y1="710" x2="270" y2="710" stroke="#7fa5f0" stroke-width="1.5" stroke-dasharray="5 4" marker-end="url(#seq-arrow-ret)"/>
+    <text x="450" y="703" text-anchor="middle" font-family="Inter, sans-serif" font-weight="600" font-size="12" fill="#1a1c2e">MCP response (scoped tools)</text>
+    <line x1="270" y1="745" x2="90" y2="745" stroke="#7fa5f0" stroke-width="1.5" stroke-dasharray="5 4" marker-end="url(#seq-arrow-ret)"/>
+    <text x="180" y="738" text-anchor="middle" font-family="Inter, sans-serif" font-weight="600" font-size="12" fill="#1a1c2e">Scoped tools for alice</text>
+  </svg>
+</div>
+
+    </section>
+
+    <section class="section">
+      <h2>OAuth 2.1 with Dynamic Client Registration</h2>
+      <p>MCP clients discover Keycloak metadata, register dynamically, and then run the authorization code flow. In the Kind stack, Keycloak is configured to allow dynamic client registration and to attach an audience mapper so issued access tokens include <code>aud: kcp</code>.</p>
+      <div class="note">
+        <p>This is the key compatibility move: the AI client gets a normal OAuth token, but kcp still accepts it natively because the token audience matches the kcp OIDC configuration.</p>
+      </div>
+    </section>
+
+    <section class="section">
+      <h2>Token validation chain</h2>
+      <ol class="step-list">
+        <li><span class="step-num">1</span><div><strong>Bearer token.</strong><span>The first resolver calls kcp <code>TokenReview</code> and extracts the authenticated user and groups.</span></div></li>
+        <li><span class="step-num">2</span><div><strong>Client certificate.</strong><span>The next resolver slot is reserved for front-proxy style client-certificate validation when a trusted proxy presents request headers.</span></div></li>
+        <li><span class="step-num">3</span><div><strong>Trusted headers.</strong><span>In the current proof-of-concept, <code>X-Remote-User</code> and <code>X-Remote-Group</code> can be trusted when <code>-trust-headers</code> is enabled.</span></div></li>
+      </ol>
+    </section>
+
+    <section class="section">
+      <h2>Security: trusted headers</h2>
+      <p><code>-trust-headers</code> is safe only when end users cannot reach access-vw directly and a trusted front-proxy is the only caller that can inject <code>X-Remote-*</code> headers.</p>
+      <div class="warning">
+        <p><strong>Production hardening path:</strong> replace blind header trust with Kubernetes-style request-header authentication backed by a client CA. In practice that means validating the caller with a request-header CA configuration such as <code>-requestheader-client-ca-file</code>, so only the approved proxy can speak on behalf of users.</p>
+      </div>
+    </section>
+
+            <nav class="page-nav" aria-label="Pagination"><a href="architecture.html">← System architecture</a><a href="scar.html">SelfClusterAccessReview API →</a></nav>
+          </main>
+          <aside class="sidebar" aria-label="Guide">
+            <p class="sidebar-title">Guide</p>
+            <ul class="nav-list">
+              <li><a href="index.html">Start here</a></li>
+              <li><a href="architecture.html">Architecture</a></li>
+              <li><a href="auth.html" aria-current="page">Authentication</a></li>
+              <li><a href="scar.html">SCAR API</a></li>
+              <li><a href="mcp.html">MCP tools</a></li>
+              <li><a href="setup.html">Setup</a></li>
+              <li><a href="reference.html">Reference</a></li>
+            </ul>
+          </aside>
+        </div>
+
+        <footer class="footer">
+          <div class="footer-inner">
+            <span>kcp-access-vw docs · SCAR, RBAC indexing, and MCP scoping for kcp.</span>
+            <span><a href="scar.html">SCAR API</a> · <a href="mcp.html">Tool catalog</a> · <a href="reference.html">Reference</a></span>
+          </div>
+        </footer>
+      </body>
+    </html>

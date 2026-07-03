@@ -1,0 +1,122 @@
+    <!doctype html>
+    <html lang="en">
+      <head>
+        <meta charset="utf-8" />
+        <meta name="viewport" content="width=device-width, initial-scale=1" />
+        <title>Reference · kcp-access-vw</title>
+        <link rel="stylesheet" href="assets/styles.css" />
+      </head>
+      <body>
+        <header class="site-header">
+          <div class="header-inner">
+            <a class="brand" href="index.html">
+              
+              <span>kcp-access-vw POC</span>
+            </a>
+            <nav class="top-links" aria-label="Top links">
+              <a href="https://github.com/cnvergence/kcp-access-vw" target="_blank" rel="noreferrer">GitHub</a>
+              <a href="https://github.com/cnvergence/kcp-access-vw#readme" target="_blank" rel="noreferrer">README</a>
+              <a href="setup.html">Setup Guide</a>
+            </nav>
+          </div>
+        </header>
+
+        <div class="guide-layout">
+          <main class="main-content">
+            <h1 class="page-title">Reference</h1>
+            <p class="intro">Source map, configuration, and API details.</p>
+
+<section class="section">
+  <h2>Source map</h2>
+  <div class="table-wrap"><table>
+    <thead><tr><th>Path</th><th>What it does</th></tr></thead>
+    <tbody>
+      <tr><td><code>cmd/server</code></td><td>Main access-vw binary: RBAC provider, SCAR handler, MCP handler, health, and debug endpoints</td></tr>
+      <tr><td><code>cmd/scar-to-kubeconfig</code></td><td>Calls SCAR and writes a scoped kubeconfig</td></tr>
+      <tr><td><code>pkg/graph</code></td><td>In-memory permission graph and query layer</td></tr>
+      <tr><td><code>pkg/rbacprovider</code></td><td>Watches RBAC state and translates grants into graph entries</td></tr>
+      <tr><td><code>pkg/virtual/auth</code></td><td>Identity resolver chain: bearer token, client cert path, trusted headers</td></tr>
+      <tr><td><code>pkg/virtual/scar</code></td><td>SelfClusterAccessReview HTTP endpoint</td></tr>
+      <tr><td><code>pkg/virtual/mcp</code></td><td>MCP transport, scoping, and kcp-native tool registration</td></tr>
+      <tr><td><code>config/apiexport</code></td><td>APIExport and APIResourceSchema for <code>access.kcp.io</code></td></tr>
+      <tr><td><code>hack/kind</code></td><td>Full-stack Kind automation, manifests, Helm values, and helper scripts</td></tr>
+      <tr><td><code>docs/</code></td><td>Walkthroughs for local and Kind-based testing</td></tr>
+    </tbody>
+  </table></div>
+</section>
+
+<section class="section">
+  <h2>CLI flags</h2>
+  <div class="table-wrap"><table>
+    <thead><tr><th>Flag</th><th>Meaning</th></tr></thead>
+    <tbody>
+      <tr><td><code>-addr</code></td><td>HTTP listen address for access-vw, default <code>:9099</code></td></tr>
+      <tr><td><code>-kubeconfig</code></td><td>Required path to the kubeconfig used for TokenReview and RBAC watching</td></tr>
+      <tr><td><code>-endpoint-base</code></td><td>Front-proxy URL prefix used when building cluster endpoints in SCAR responses</td></tr>
+      <tr><td><code>-apiexport-endpointslice</code></td><td>Enables multi-shard mode and watches workspaces bound to the named APIExportEndpointSlice</td></tr>
+      <tr><td><code>-trust-headers</code></td><td>Trust <code>X-Remote-User</code> and <code>X-Remote-Group</code>; safe only behind a trusted front-proxy</td></tr>
+    </tbody>
+  </table></div>
+</section>
+
+<section class="section">
+  <h2>Environment</h2>
+  <div class="table-wrap"><table>
+    <thead><tr><th>Layer</th><th>Configuration detail</th></tr></thead>
+    <tbody>
+      <tr><td>Keycloak</td><td>Realm <code>kcp</code>, test users <code>alice</code>/<code>bob</code>, dynamic client registration enabled, audience mapping for <code>kcp</code></td></tr>
+      <tr><td>Envoy AI Gateway</td><td>Handles HTTPS, OAuth, MCP routing, and bearer-token forwarding to the backend</td></tr>
+      <tr><td>kcp</td><td>FrontProxy validates OIDC tokens, exposes logical cluster endpoints, and provides TokenReview for access-vw</td></tr>
+      <tr><td>access-vw</td><td>Runs on <code>:9099</code> with both <code>/mcp</code> and SCAR endpoints backed by the same graph</td></tr>
+    </tbody>
+  </table></div>
+</section>
+
+<section class="section">
+  <h2>API details</h2>
+  <div class="table-wrap"><table>
+    <thead><tr><th>Path</th><th>Purpose</th></tr></thead>
+    <tbody>
+      <tr><td><code>POST /mcp</code></td><td>External AI Gateway entrypoint used by MCP clients in the Kind stack</td></tr>
+      <tr><td><code>POST /services/access-virtual-workspace/mcp</code></td><td>Internal access-vw MCP backend path behind the gateway</td></tr>
+      <tr><td><code>POST /services/access-virtual-workspace/apis/access.kcp.io/v1alpha1/selfclusteraccessreviews</code></td><td>SCAR workspace discovery endpoint</td></tr>
+      <tr><td><code>GET /debug/graph</code></td><td>Pretty-printed graph snapshot for debugging</td></tr>
+      <tr><td><code>GET /healthz</code></td><td>Readiness probe; returns <code>ok</code> when the graph is ready</td></tr>
+    </tbody>
+  </table></div>
+</section>
+
+<section class="section">
+  <h2>Links</h2>
+  <div class="two-col">
+    <article class="mini-card"><strong>ADR 007</strong><p><a href="https://github.com/cnvergence/pm-architecture/blob/ec1fc0d334de2702dbcfb3070d6d01bc2031bbbf/adr/007-mcp-server-for-kcp-and-platform-mesh.md" target="_blank" rel="noreferrer">MCP Server for kcp and Platform Mesh</a></p></article>
+    <article class="mini-card"><strong>kcp docs</strong><p><a href="https://docs.kcp.io/" target="_blank" rel="noreferrer">https://docs.kcp.io/</a></p></article>
+    <article class="mini-card"><strong>MCP spec</strong><p><a href="https://modelcontextprotocol.io/specification/" target="_blank" rel="noreferrer">https://modelcontextprotocol.io/specification/</a></p></article>
+    <article class="mini-card"><strong>Envoy AI Gateway</strong><p><a href="https://aigateway.envoyproxy.io/" target="_blank" rel="noreferrer">https://aigateway.envoyproxy.io/</a></p></article>
+  </div>
+</section>
+
+            <nav class="page-nav" aria-label="Pagination"><a href="setup.html">← Local setup guide</a><span></span></nav>
+          </main>
+          <aside class="sidebar" aria-label="Guide">
+            <p class="sidebar-title">Guide</p>
+            <ul class="nav-list">
+              <li><a href="index.html">Start here</a></li>
+              <li><a href="architecture.html">Architecture</a></li>
+              <li><a href="auth.html">Authentication</a></li>
+              <li><a href="scar.html">SCAR API</a></li>
+              <li><a href="mcp.html">MCP tools</a></li>
+              <li><a href="setup.html">Setup</a></li>
+              <li><a href="reference.html" aria-current="page">Reference</a></li>
+            </ul>
+          </aside>
+        </div>
+
+        <footer class="footer">
+          <div class="footer-inner">
+            <span>kcp-access-vw docs · SCAR, RBAC indexing, and MCP scoping for kcp.</span>
+            <span><a href="scar.html">SCAR API</a> · <a href="mcp.html">Tool catalog</a> · <a href="reference.html">Reference</a></span>
+          </div>
+        </footer>
+      </body>
+    </html>

@@ -1,0 +1,113 @@
+    <!doctype html>
+    <html lang="en">
+      <head>
+        <meta charset="utf-8" />
+        <meta name="viewport" content="width=device-width, initial-scale=1" />
+        <title>SelfClusterAccessReview API · kcp-access-vw</title>
+        <link rel="stylesheet" href="assets/styles.css" />
+      </head>
+      <body>
+        <header class="site-header">
+          <div class="header-inner">
+            <a class="brand" href="index.html">
+              
+              <span>kcp-access-vw POC</span>
+            </a>
+            <nav class="top-links" aria-label="Top links">
+              <a href="https://github.com/cnvergence/kcp-access-vw" target="_blank" rel="noreferrer">GitHub</a>
+              <a href="https://github.com/cnvergence/kcp-access-vw#readme" target="_blank" rel="noreferrer">README</a>
+              <a href="setup.html">Setup Guide</a>
+            </nav>
+          </div>
+        </header>
+
+        <div class="guide-layout">
+          <main class="main-content">
+            <h1 class="page-title">SelfClusterAccessReview API</h1>
+            <p class="intro">A single API call that answers: which workspaces does this user have access to?</p>
+
+    <section class="section">
+      <h2>Endpoint</h2>
+      <div class="example">
+        <div class="example-title"><span>HTTP endpoint</span></div>
+        <pre><code>POST /services/access-virtual-workspace/apis/access.kcp.io/v1alpha1/selfclusteraccessreviews</code></pre>
+      </div>
+    </section>
+
+    <section class="section">
+      <h2>Request</h2>
+      <p>Callers authenticate with either a bearer token or trusted front-proxy headers.</p>
+      <div class="example">
+        <div class="example-title"><span>curl examples</span></div>
+        <pre><code># Bearer token path
+curl -k -X POST   -H "Authorization: Bearer $KCP_TOKEN"   https://root.kcp.example:6443/services/access-virtual-workspace/apis/access.kcp.io/v1alpha1/selfclusteraccessreviews
+
+# Front-proxy path
+curl -X POST   -H 'X-Remote-User: alice'   -H 'X-Remote-Group: eng'   http://localhost:9099/services/access-virtual-workspace/apis/access.kcp.io/v1alpha1/selfclusteraccessreviews</code></pre>
+      </div>
+    </section>
+
+    <section class="section">
+      <h2>Response</h2>
+      <div class="example">
+        <div class="example-title"><span>JSON payload</span></div>
+        <pre><code>{
+  "kind": "SelfClusterAccessReview",
+  "apiVersion": "access.kcp.io/v1alpha1",
+  "status": {
+    "clusters": [
+      {
+        "clusterName": "33daicwbox20zsxj",
+        "endpoint": "https://root.kcp.example:6443/clusters/33daicwbox20zsxj"
+      },
+      {
+        "clusterName": "workspace1",
+        "endpoint": "https://root.kcp.example:6443/clusters/workspace1"
+      }
+    ]
+  }
+}</code></pre>
+      </div>
+    </section>
+
+    <section class="section">
+      <h2>How it works</h2>
+      <p>The RBAC provider watches <code>ClusterRoleBindings</code> and <code>RoleBindings</code> across opted-in workspaces, translates subjects into graph entries, and stores the result as subject-to-cluster mappings. A SCAR request only needs identity resolution plus a graph lookup.</p>
+      <div class="note">
+        <p>That is why SCAR can answer “where can this user go?” in one shot instead of repeating <code>SelfSubjectAccessReview</code> across every workspace.</p>
+      </div>
+    </section>
+
+    <section class="section">
+      <h2>Debug endpoint</h2>
+      <div class="example">
+        <div class="example-title"><span>Graph snapshot</span></div>
+        <pre><code>GET /debug/graph</code></pre>
+      </div>
+      <p>Returns the current in-memory graph snapshot so you can inspect which subjects map to which clusters.</p>
+    </section>
+
+            <nav class="page-nav" aria-label="Pagination"><a href="auth.html">← Authentication flow</a><a href="mcp.html">MCP tool catalog →</a></nav>
+          </main>
+          <aside class="sidebar" aria-label="Guide">
+            <p class="sidebar-title">Guide</p>
+            <ul class="nav-list">
+              <li><a href="index.html">Start here</a></li>
+              <li><a href="architecture.html">Architecture</a></li>
+              <li><a href="auth.html">Authentication</a></li>
+              <li><a href="scar.html" aria-current="page">SCAR API</a></li>
+              <li><a href="mcp.html">MCP tools</a></li>
+              <li><a href="setup.html">Setup</a></li>
+              <li><a href="reference.html">Reference</a></li>
+            </ul>
+          </aside>
+        </div>
+
+        <footer class="footer">
+          <div class="footer-inner">
+            <span>kcp-access-vw docs · SCAR, RBAC indexing, and MCP scoping for kcp.</span>
+            <span><a href="scar.html">SCAR API</a> · <a href="mcp.html">Tool catalog</a> · <a href="reference.html">Reference</a></span>
+          </div>
+        </footer>
+      </body>
+    </html>

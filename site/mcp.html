@@ -1,0 +1,136 @@
+    <!doctype html>
+    <html lang="en">
+      <head>
+        <meta charset="utf-8" />
+        <meta name="viewport" content="width=device-width, initial-scale=1" />
+        <title>MCP tool catalog · kcp-access-vw</title>
+        <link rel="stylesheet" href="assets/styles.css" />
+      </head>
+      <body>
+        <header class="site-header">
+          <div class="header-inner">
+            <a class="brand" href="index.html">
+              
+              <span>kcp-access-vw POC</span>
+            </a>
+            <nav class="top-links" aria-label="Top links">
+              <a href="https://github.com/cnvergence/kcp-access-vw" target="_blank" rel="noreferrer">GitHub</a>
+              <a href="https://github.com/cnvergence/kcp-access-vw#readme" target="_blank" rel="noreferrer">README</a>
+              <a href="setup.html">Setup Guide</a>
+            </nav>
+          </div>
+        </header>
+
+        <div class="guide-layout">
+          <main class="main-content">
+            <h1 class="page-title">MCP tool catalog</h1>
+            <p class="intro">32 kcp-native tools exposed per-user via the Model Context Protocol.</p>
+
+<section class="section">
+  <h2>Workspace Discovery</h2>
+  <div class="table-wrap"><table>
+    <thead><tr><th>Tool</th><th>Description</th></tr></thead>
+    <tbody>
+      <tr><td><code>list_kcp_workspaces</code></td><td>List workspaces the user can access</td></tr>
+      <tr><td><code>list_kcp_child_workspaces</code></td><td>List child workspaces within a parent</td></tr>
+      <tr><td><code>list_kcp_initializingworkspaces</code></td><td>Workspaces being created</td></tr>
+      <tr><td><code>list_kcp_terminatingworkspaces</code></td><td>Workspaces being deleted</td></tr>
+    </tbody>
+  </table></div>
+</section>
+
+<section class="section">
+  <h2>API Management</h2>
+  <div class="table-wrap"><table>
+    <thead><tr><th>Tool</th><th>Description</th></tr></thead>
+    <tbody>
+      <tr><td><code>list_kcp_apiexports</code> / <code>get_kcp_apiexport</code></td><td>APIExports in a workspace</td></tr>
+      <tr><td><code>list_kcp_apibindings</code> / <code>get_kcp_apibinding</code></td><td>APIBindings connecting to APIs</td></tr>
+      <tr><td><code>list_kcp_apiresourceschemas</code> / <code>get_kcp_apiresourceschema</code></td><td>CRD-like schemas</td></tr>
+      <tr><td><code>list_kcp_apiconversions</code></td><td>API version conversions</td></tr>
+      <tr><td><code>list_kcp_apiexportendpointslices</code></td><td>APIExport endpoints</td></tr>
+      <tr><td><code>list_kcp_workspacetypes</code> / <code>get_kcp_workspacetype</code></td><td>Workspace templates</td></tr>
+    </tbody>
+  </table></div>
+</section>
+
+<section class="section">
+  <h2>Infrastructure</h2>
+  <div class="table-wrap"><table>
+    <thead><tr><th>Tool</th><th>Description</th></tr></thead>
+    <tbody>
+      <tr><td><code>list_kcp_logicalclusters</code></td><td>Internal cluster identities</td></tr>
+      <tr><td><code>list_kcp_shards</code></td><td>Physical kcp server instances</td></tr>
+      <tr><td><code>list_kcp_partitions</code></td><td>Workspace distribution</td></tr>
+      <tr><td><code>list_kcp_partitionsets</code></td><td>Partition groups</td></tr>
+    </tbody>
+  </table></div>
+</section>
+
+<section class="section">
+  <h2>Replication</h2>
+  <div class="table-wrap"><table>
+    <thead><tr><th>Tool</th><th>Description</th></tr></thead>
+    <tbody>
+      <tr><td><code>list_kcp_synctargets</code></td><td>Registered physical clusters</td></tr>
+      <tr><td><code>list_kcp_placements</code></td><td>Workload scheduling</td></tr>
+      <tr><td><code>list_kcp_locations</code></td><td>SyncTarget groupings</td></tr>
+    </tbody>
+  </table></div>
+</section>
+
+<section class="section">
+  <h2>Generic Kubernetes</h2>
+  <div class="table-wrap"><table>
+    <thead><tr><th>Tool</th><th>Description</th></tr></thead>
+    <tbody>
+      <tr><td><code>list_resources</code> / <code>get_resource</code></td><td>Any Kubernetes resource by GVR</td></tr>
+      <tr><td><code>create_resource</code></td><td>Create a resource</td></tr>
+      <tr><td><code>update_resource</code></td><td>Replace a resource</td></tr>
+      <tr><td><code>patch_resource</code></td><td>JSON merge patch</td></tr>
+      <tr><td><code>delete_resource</code></td><td>Delete a resource</td></tr>
+      <tr><td><code>scale_resource</code></td><td>Get or set replicas</td></tr>
+      <tr><td><code>list_namespaces</code></td><td>List namespaces</td></tr>
+      <tr><td><code>list_api_resources</code></td><td>API resource discovery</td></tr>
+      <tr><td><code>list_api_groups</code></td><td>API group discovery</td></tr>
+      <tr><td><code>list_events</code></td><td>Kubernetes events</td></tr>
+    </tbody>
+  </table></div>
+</section>
+
+<section class="section">
+  <h2>Naming convention</h2>
+  <div class="note">
+    <p>kcp-specific objects use <code>&lt;verb&gt;_kcp_&lt;noun&gt;</code>. Generic Kubernetes objects use <code>&lt;verb&gt;_&lt;noun&gt;</code>. That keeps the tool list readable while clearly separating kcp-native inventory from generic cluster operations.</p>
+  </div>
+</section>
+
+<section class="section">
+  <h2>Per-user scoping</h2>
+  <p>Each MCP session gets a tool surface derived from the caller's SCAR result. The user sees only the workspaces they are authorized for, and every tool call is constrained to that per-user workspace set.</p>
+</section>
+
+            <nav class="page-nav" aria-label="Pagination"><a href="scar.html">← SelfClusterAccessReview API</a><a href="setup.html">Local setup guide →</a></nav>
+          </main>
+          <aside class="sidebar" aria-label="Guide">
+            <p class="sidebar-title">Guide</p>
+            <ul class="nav-list">
+              <li><a href="index.html">Start here</a></li>
+              <li><a href="architecture.html">Architecture</a></li>
+              <li><a href="auth.html">Authentication</a></li>
+              <li><a href="scar.html">SCAR API</a></li>
+              <li><a href="mcp.html" aria-current="page">MCP tools</a></li>
+              <li><a href="setup.html">Setup</a></li>
+              <li><a href="reference.html">Reference</a></li>
+            </ul>
+          </aside>
+        </div>
+
+        <footer class="footer">
+          <div class="footer-inner">
+            <span>kcp-access-vw docs · SCAR, RBAC indexing, and MCP scoping for kcp.</span>
+            <span><a href="scar.html">SCAR API</a> · <a href="mcp.html">Tool catalog</a> · <a href="reference.html">Reference</a></span>
+          </div>
+        </footer>
+      </body>
+    </html>

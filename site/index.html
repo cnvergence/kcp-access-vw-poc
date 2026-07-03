@@ -1,0 +1,99 @@
+    <!doctype html>
+    <html lang="en">
+      <head>
+        <meta charset="utf-8" />
+        <meta name="viewport" content="width=device-width, initial-scale=1" />
+        <title>Start here · kcp-access-vw</title>
+        <link rel="stylesheet" href="assets/styles.css" />
+      </head>
+      <body>
+        <header class="site-header">
+          <div class="header-inner">
+            <a class="brand" href="index.html">
+
+              <span>kcp-access-vw POC</span>
+            </a>
+            <nav class="top-links" aria-label="Top links">
+              <a href="https://github.com/cnvergence/kcp-access-vw" target="_blank" rel="noreferrer">GitHub</a>
+              <a href="https://github.com/cnvergence/kcp-access-vw#readme" target="_blank" rel="noreferrer">README</a>
+              <a href="setup.html">Setup Guide</a>
+            </nav>
+          </div>
+        </header>
+
+        <div class="guide-layout">
+          <main class="main-content">
+            <h1 class="page-title">Permission-aware workspace discovery for kcp</h1>
+            <p class="intro">kcp-access-vw answers “which workspaces does this user have access to?” with a single API call, then exposes the result as MCP tools for AI assistants.</p>
+
+
+<section class="section">
+  <h2>The short version</h2>
+  <ol class="step-list">
+    <li>
+      <span class="step-num">1</span>
+      <div>
+        <strong>RBAC indexing.</strong>
+        <span>The server watches <code>ClusterRoleBindings</code> and <code>RoleBindings</code> across all kcp workspaces and translates them into an in-memory permission graph.</span>
+      </div>
+    </li>
+    <li>
+      <span class="step-num">2</span>
+      <div>
+        <strong>Identity resolution.</strong>
+        <span>When a user connects, their bearer token is validated via kcp <code>TokenReview</code>. The resolved identity is checked against the permission graph.</span>
+      </div>
+    </li>
+    <li>
+      <span class="step-num">3</span>
+      <div>
+        <strong>Scoped tool exposure.</strong>
+        <span>Only the workspaces that user can access are exposed as MCP tools. An AI assistant sees exactly what that user is authorized to — no more, no less.</span>
+      </div>
+    </li>
+  </ol>
+</section>
+
+
+<section class="section">
+  <h2>Why it matters</h2>
+  <div class="three-col">
+    <article class="mini-card">
+      <strong>One call, many workspaces</strong>
+      <p class="short">SCAR replaces a fan-out of per-workspace auth checks with one permission-aware response.</p>
+    </article>
+    <article class="mini-card">
+      <strong>Native kcp semantics</strong>
+      <p class="short">The indexer understands kcp workspaces, APIBindings, and logical cluster endpoints.</p>
+    </article>
+    <article class="mini-card">
+      <strong>Agent-safe scoping</strong>
+      <p class="short">MCP sessions inherit the caller's access boundary automatically, without custom policy glue.</p>
+    </article>
+  </div>
+</section>
+
+            <nav class="page-nav" aria-label="Pagination"><span></span><a href="architecture.html">System architecture →</a></nav>
+          </main>
+          <aside class="sidebar" aria-label="Guide">
+            <p class="sidebar-title">Guide</p>
+            <ul class="nav-list">
+              <li><a href="index.html" aria-current="page">Start here</a></li>
+              <li><a href="architecture.html">Architecture</a></li>
+              <li><a href="auth.html">Authentication</a></li>
+              <li><a href="scar.html">SCAR API</a></li>
+              <li><a href="mcp.html">MCP tools</a></li>
+              <li><a href="setup.html">Setup</a></li>
+              <li><a href="reference.html">Reference</a></li>
+            </ul>
+          </aside>
+        </div>
+
+        <footer class="footer">
+          <div class="footer-inner">
+            <span>kcp-access-vw docs · SCAR, RBAC indexing, and MCP scoping for kcp.</span>
+            <span><a href="scar.html">SCAR API</a> · <a href="mcp.html">Tool catalog</a> · <a href="reference.html">Reference</a></span>
+          </div>
+        </footer>
+      </body>
+    </html>
