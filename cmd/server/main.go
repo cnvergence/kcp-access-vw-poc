@@ -113,7 +113,6 @@ func main() {
 	mux := http.NewServeMux()
 	scar.Register(mux, g, resolver)
 	mcp.Register(mux, g, resolver, &mcp.Options{
-		EndpointBase:  *endpointBase,
 		ClientFactory: clientFactory,
 	})
 	mux.HandleFunc("/healthz", func(w http.ResponseWriter, _ *http.Request) {

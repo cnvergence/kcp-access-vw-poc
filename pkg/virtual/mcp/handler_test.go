@@ -32,6 +32,7 @@ func (s *stubResolver) Resolve(_ context.Context, _ *http.Request) (*auth.Identi
 func parseSSEResponse(t *testing.T, body string) map[string]any {
 	t.Helper()
 	scanner := bufio.NewScanner(strings.NewReader(body))
+	scanner.Buffer(make([]byte, 0, 1024*1024), 1024*1024) // 1 MB to handle large tools/list responses
 	for scanner.Scan() {
 		line := scanner.Text()
 		if strings.HasPrefix(line, "data: ") {
@@ -42,6 +43,9 @@ func parseSSEResponse(t *testing.T, body string) map[string]any {
 			}
 			return resp
 		}
+	}
+	if err := scanner.Err(); err != nil {
+		t.Fatalf("scanner error: %v", err)
 	}
 	t.Fatalf("no SSE data line found in body:\n%s", body)
 	return nil
@@ -65,7 +69,6 @@ func TestHandler_GraphNotReady(t *testing.T) {
 	mcp.Register(mux, g, &stubResolver{
 		id: &auth.Identity{Username: "alice"},
 	}, &mcp.Options{
-		EndpointBase:  "https://kcp.example/clusters/",
 		ClientFactory: cf,
 	})
 
@@ -97,7 +100,6 @@ func TestHandler_AuthFailure(t *testing.T) {
 	mcp.Register(mux, g, &stubResolver{
 		err: fmt.Errorf("no credentials"),
 	}, &mcp.Options{
-		EndpointBase:  "https://kcp.example/clusters/",
 		ClientFactory: cf,
 	})
 
@@ -126,7 +128,6 @@ func TestHandler_AuthenticatedUser(t *testing.T) {
 	mcp.Register(mux, g, &stubResolver{
 		id: &auth.Identity{Username: "alice", Groups: []string{"system:authenticated"}},
 	}, &mcp.Options{
-		EndpointBase:  "https://kcp.example/clusters/",
 		ClientFactory: cf,
 	})
 
