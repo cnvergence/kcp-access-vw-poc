@@ -32,7 +32,6 @@ bin/
 
 # Kind setup generated files
 hack/kind/admin.kubeconfig
-.github
 .claude
 
 # Editor/IDE

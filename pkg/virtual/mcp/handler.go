@@ -28,9 +28,6 @@ const Path = "/services/access-virtual-workspace/mcp"
 
 // Options configures the MCP handler.
 type Options struct {
-	// EndpointBase is the FrontProxy URL prefix for workspace endpoints.
-	EndpointBase string
-
 	// ClientFactory produces K8s clients. Shared across all requests to
 	// reuse TLS connections.
 	ClientFactory *ClientFactory

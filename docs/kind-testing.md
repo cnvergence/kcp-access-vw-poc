@@ -11,19 +11,18 @@ MCP Client (Claude Code, Copilot CLI)
 │  Envoy AI Gateway            │   ← MCPRoute CRD, OAuth via Keycloak
 │  (MCPRoute + OIDC)           │
 └──────────┬───────────────────┘
-           │  Authorization: Bearer <token> passthrough
+           │  Authorization: Bearer <OIDC token> passthrough
            ▼
 ┌──────────────────────────────┐
-│  kubernetes-mcp-server       │   ← --cluster-provider=kcp
-│  (kcp provider)              │     forwards caller's OIDC token to kcp
-└──────────┬───────────────────┘
+│  access-vw                   │   ← Built-in MCP server + SCAR API
+│  (TokenReview · graph scope) │     authenticates via OIDC token,
+└──────────┬───────────────────┘     scopes tools to user's workspaces
            │
-    ┌──────┴──────┐
-    ▼             ▼
-┌────────┐  ┌──────────────┐
-│  kcp   │  │  access-vw   │   ← SCAR endpoint, behind FrontProxy
-│  shard │  │  (SCAR API)  │
-└────────┘  └──────────────┘
+           ▼
+┌──────────────────────────────┐
+│  kcp shard                   │   ← workspace K8s API calls
+│  (per-workspace endpoints)   │     using caller's bearer token
+└──────────────────────────────┘
     ▲
     │  OIDC token validation
     ▼
@@ -31,6 +30,10 @@ MCP Client (Claude Code, Copilot CLI)
 │  Keycloak (HTTPS)            │   ← realm: kcp, users: alice, bob
 └──────────────────────────────┘
 ```
+
+The **built-in MCP server** in access-vw serves MCP tools at `/services/access-virtual-workspace/mcp`. It authenticates each request via OIDC token (TokenReview against kcp), queries the permission graph for the caller's workspaces, and scopes all tool operations to those workspaces only. No separate MCP server binary is needed.
+
+> **Alternative:** An upstream `kubernetes-mcp-server` deployment is available via `make install-mcp-upstream` — see [Alternative: upstream kubernetes-mcp-server](#alternative-upstream-kubernetes-mcp-server) below.
 
 For the simpler host-local `kcp start` setup (no Kind, no Keycloak, no gateway), see [`local-testing.md`](local-testing.md).
 
@@ -68,10 +71,9 @@ The Makefile runs these steps sequentially (`make -C hack/kind setup`):
 | 3 | Envoy Gateway + AI Gateway | `envoy-gateway-system` | Base gateway + MCP routing controller + `MCPRoute` CRD |
 | 4 | kcp | `kcp-system` | kcp-operator → etcd → RootShard → FrontProxy (with OIDC) |
 | 5 | Keycloak | `keycloak` | OIDC provider with `kcp` realm, users alice/bob, dynamic client registration |
-| 6 | access-vw | `kcp-system` | SCAR service, registered via FrontProxy `additionalPathMappings` |
-| 7 | kubernetes-mcp-server | `mcp` | MCP server with `--cluster-provider=kcp`, OIDC token passthrough |
-| 8 | MCPRoute + TLS | `mcp` | Routes MCP traffic through Envoy with HTTPS + Keycloak OAuth |
-| 9 | Test data | — | APIExport, per-user workspaces (alice/bob), differentiated RBAC |
+| 6 | access-vw | `kcp-system` | SCAR API + built-in MCP server, registered via FrontProxy `additionalPathMappings` |
+| 7 | MCPRoute + AI Gateway | `kcp-system` | Routes MCP traffic through Envoy with OAuth via Keycloak |
+| 8 | Test data | — | APIExport, per-user workspaces (alice/bob), differentiated RBAC |
 
 ## Network access
 
@@ -81,7 +83,7 @@ Services are exposed to the host via two mechanisms — **no port-forwarding nee
 |---------|----------|------|-----------|
 | Keycloak (HTTPS) | `keycloak.kcp.example` | 8443 | Kind NodePort (30443 → host 8443) |
 | kcp FrontProxy | `root.kcp.example` | 6443 | Kind NodePort (30644 → host 6443) |
-| MCP Gateway (HTTPS) | `mcp.kcp.example` | 8443 | MetalLB LoadBalancer IP |
+| MCP Gateway (HTTP) | `mcp.kcp.example` | 8080 | MetalLB LoadBalancer IP |
 
 Add these to `/etc/hosts` (the setup script shows the exact entries):
 
@@ -95,13 +97,12 @@ Add these to `/etc/hosts` (the setup script shows the exact entries):
 The full authentication chain works end-to-end with real OIDC tokens:
 
 1. **User authenticates with Keycloak** — gets an OIDC access token (realm `kcp`, client `kcp`)
-2. **MCP client sends token** to the Envoy AI Gateway (`https://mcp.kcp.example:8443/mcp`)
+2. **MCP client sends token** to the Envoy AI Gateway (`http://mcp.kcp.example:8080/mcp`)
 3. **Envoy validates the token** via Keycloak's JWKS endpoint
-4. **Token passes through** to kubernetes-mcp-server (via `Authorization` header propagation)
-5. **kubernetes-mcp-server creates a per-request kcp client** using the caller's bearer token
-6. **kcp validates the OIDC token** natively (`spec.auth.oidc` on RootShard/FrontProxy)
-7. **kcp identifies the user** (e.g., `alice` from `preferred_username` claim, no prefix)
-8. **access-vw/SCAR** returns only the workspaces that user has access to
+4. **Token passes through** to access-vw's built-in MCP handler (via `Authorization` header forwarding)
+5. **access-vw performs a TokenReview** against kcp — validates the OIDC token and extracts the user identity
+6. **access-vw queries the permission graph** — returns only workspaces the caller has access to
+7. **MCP tools execute against scoped workspaces** — each K8s API call uses the caller's bearer token against the per-workspace endpoint
 
 ## Step-by-step walkthrough
 
@@ -209,39 +210,29 @@ make -C hack/kind install-access-vw    # builds image + deploys
 
 Builds the Go binary for `linux/amd64`, packages it in a distroless container, and loads it into Kind. The deployment mounts a kcp admin kubeconfig (generated by kcp-operator `Kubeconfig` CR) and runs with `-trust-headers` and `-apiexport-endpointslice=access.kcp.io` for multi-shard mode (identity comes from FrontProxy's requestheader headers).
 
-### 7. Deploy kubernetes-mcp-server
+access-vw serves two endpoints:
+- **SCAR API** at `/services/access-virtual-workspace/apis/access.kcp.io/v1alpha1/selfclusteraccessreviews` — "which workspaces does this user have access to?"
+- **Built-in MCP server** at `/services/access-virtual-workspace/mcp` — MCP tools scoped to the caller's workspaces (uses the same in-process permission graph as SCAR, no HTTP round-trip)
 
-```sh
-helm upgrade --install kubernetes-mcp-server \
-  oci://ghcr.io/containers/charts/kubernetes-mcp-server \
-  --version 0.1.0 --namespace mcp \
-  -f hack/kind/helm/mcp-values.yaml
-```
-
-Configured with `--cluster-provider=kcp --toolsets=core,config,kcp --stateless`. Mounts a kcp kubeconfig from a Kubernetes secret (generated by kcp-operator `Kubeconfig` CR).
-
-**Important:** The MCP server uses an admin-level kubeconfig to connect to kcp — it needs broad access because it executes operations on behalf of many users. Per-user scoping is handled by SCAR: the MCP server forwards the caller's OIDC token to the SCAR endpoint and only exposes the workspaces SCAR returns for that user. Without SCAR integration (Issue #2), the MCP server currently lists all workspaces the kubeconfig can reach; the AI Gateway's OAuth ensures only authenticated users can access the MCP endpoint.
-
-**Token passthrough:** When an MCP request includes an `Authorization: Bearer` header, the MCP server creates a per-request kcp client using that bearer token instead of its own kubeconfig. This means kcp sees the caller's OIDC identity, not the MCP server's service identity.
-
-### 8. Apply MCPRoute + TLS
+### 7. Apply MCPRoute + AI Gateway
 
 ```sh
 kubectl apply -k hack/kind/manifests/ai-gateway
 ```
 
 This creates:
-- **Certificate** — self-signed TLS certificate for `mcp.kcp.example` (via cert-manager)
-- **GatewayClass** + **Gateway** — Envoy HTTPS listener on port 8443 with TLS termination
-- **EnvoyProxy** — custom Envoy bootstrap config
-- **MCPRoute** — routes MCP traffic to `kubernetes-mcp-server:8080` with OAuth:
+- **Certificate** — self-signed TLS certificate for `mcp.kcp.example` (provisioned for future HTTPS; Gateway currently uses HTTP)
+- **GatewayClass** + **Gateway** — Envoy HTTP listener on port 8080
+- **EnvoyProxy** — custom Envoy bootstrap config with MCP-specific access logging
+- **MCPRoute** — routes MCP traffic to `access-vw:9099` at path `/services/access-virtual-workspace/mcp` with OAuth:
   - Issuer: Keycloak's `kcp` realm (HTTPS)
   - JWKS: Keycloak's OIDC certs endpoint
-  - Protected resource metadata for OAuth discovery (`https://mcp.kcp.example:8443/mcp`)
+  - `Authorization` header forwarding so access-vw receives the caller's OIDC token
+  - Protected resource metadata for OAuth discovery (`http://mcp.kcp.example:8080/mcp`)
 
 MetalLB assigns the gateway an external IP (e.g., `172.18.0.200`).
 
-### 9. Seed test data
+### 8. Seed test data
 
 Using the admin kubeconfig:
 1. Installs the `access.kcp.io` APIExport in root
@@ -258,15 +249,13 @@ Ensure your `/etc/hosts` entries are set (see [Network access](#network-access) 
   "mcpServers": {
     "kcp": {
       "type": "http",
-      "url": "https://mcp.kcp.example:8443/mcp"
+      "url": "http://mcp.kcp.example:8080/mcp"
     }
   }
 }
 ```
 
-The MCP endpoint uses HTTPS with a self-signed certificate. The MCP client will discover Keycloak OAuth via the protected resource metadata, authenticate, and then interact with kcp workspaces scoped to the authenticated user's RBAC.
-
-> **Note:** Some MCP clients may reject self-signed certificates. If that happens, you can use `NODE_TLS_REJECT_UNAUTHORIZED=0` (for Node.js-based clients) or configure the client to trust the self-signed CA.
+The Envoy AI Gateway handles OAuth (via Keycloak) and forwards the caller's OIDC token to access-vw. The MCP client will discover Keycloak OAuth via the protected resource metadata, authenticate, and then interact with kcp workspaces scoped to the authenticated user's permissions.
 
 ## Getting OIDC tokens manually
 
@@ -304,15 +293,14 @@ curl -s http://localhost:9099/debug/graph | jq
 
 # MCP gateway status
 kubectl get gateway -A
-kubectl get certificate -n mcp
+kubectl get certificate -n kcp-system
 
-# Test MCP endpoint directly (self-signed cert → use -k)
+# Test MCP endpoint directly
 TOKEN=$(hack/kind/scripts/get-oidc-token.sh alice)
-curl -sk https://mcp.kcp.example:8443/mcp -H "Authorization: Bearer $TOKEN"
+curl -s http://mcp.kcp.example:8080/mcp -H "Authorization: Bearer $TOKEN"
 
 # Logs
 kubectl logs -n kcp-system -l app=access-vw -f
-kubectl logs -n mcp -l app.kubernetes.io/name=kubernetes-mcp-server -f
 kubectl logs -n envoy-ai-gateway-system -l app.kubernetes.io/name=ai-gateway -f
 kubectl logs -n keycloak keycloak-keycloakx-0 -f
 
@@ -345,9 +333,8 @@ This deletes the Kind cluster and cleans up `hack/kind/admin.kubeconfig`.
 The setup mirrors the ADR 007 production architecture:
 
 - **Envoy AI Gateway** fills the "MCP-aware gateway" role from the ADR. It handles OIDC (via Keycloak), MCP protocol routing, and session management. In production this would be the edge gateway; here it runs in-cluster.
-- **kcp FrontProxy** handles identity propagation (`X-Remote-User`, `X-Remote-Group`) for requests reaching the access-vw. The `additionalPathMappings` on the FrontProxy CR registers access-vw at `/services/access-virtual-workspace`.
-- **access-vw** runs with `-trust-headers` behind FrontProxy, the same as it would in production. The FrontProxy is the trust boundary.
-- **kubernetes-mcp-server** is the interim MCP server with OIDC token passthrough. It will be replaced by the bespoke MCP Virtual Workspace (Issue #2) which calls the AccessProvider in-process instead of over HTTP.
+- **kcp FrontProxy** handles identity propagation (`X-Remote-User`, `X-Remote-Group`) for SCAR requests reaching the access-vw. The `additionalPathMappings` on the FrontProxy CR registers access-vw at `/services/access-virtual-workspace`.
+- **access-vw** serves both the SCAR API and a built-in MCP server. The MCP handler authenticates callers via TokenReview (validating the forwarded OIDC token against kcp), queries the in-process permission graph, and scopes all tool operations to the caller's workspaces. SCAR requests arriving via FrontProxy use `-trust-headers` for identity.
 - **Keycloak** provides OIDC authentication. Both kcp (RootShard + FrontProxy) and the Envoy MCPRoute validate tokens against the same Keycloak realm.
 - **MetalLB** provides LoadBalancer IPs on the Kind Docker network, making the MCP gateway directly reachable from the host without port-forwarding.
 
@@ -357,9 +344,9 @@ The setup mirrors the ADR 007 production architecture:
 |--------|-----------|------------|
 | TLS | Self-signed CA (cert-manager) | Real certificates |
 | kcp | Single shard, multi-shard code path, embedded cache | Multi-shard, dedicated etcd per shard |
-| Gateway | Envoy AI Gateway (HTTPS, self-signed) | Edge gateway (Envoy or cloud LB, real certs) |
+| Gateway | Envoy AI Gateway (HTTP, self-signed cert provisioned) | Edge gateway (Envoy or cloud LB, real certs, HTTPS) |
 | Keycloak | Local instance, `kcp` realm, H2 DB | External OIDC provider |
-| MCP server | `kubernetes-mcp-server` binary | Bespoke MCP VW (Issue #2) |
+| MCP server | Built-in MCP in access-vw | Same (or bespoke MCP VW in kcp binary) |
 | access-vw | Standalone service behind FrontProxy | Virtual Workspace in kcp binary |
 | Load balancer | MetalLB (L2 mode) | Cloud provider LB |
 
@@ -369,8 +356,48 @@ The setup mirrors the ADR 007 production architecture:
 |--------|-------------------|-----------------|
 | kcp | `kcp start` on host | In-cluster via kcp-operator |
 | Auth | curl with `-trust-headers` or `TokenReview` | Real OIDC via Keycloak |
-| MCP gateway | None (direct to kubernetes-mcp-server) | Envoy AI Gateway with OAuth |
+| MCP | Direct to access-vw `:9099` (no gateway) | Envoy AI Gateway with OAuth → access-vw |
 | SCAR access | Direct HTTP to `localhost:9099` | Via FrontProxy path mapping |
 | Token flow | ServiceAccount tokens | Keycloak OIDC tokens (alice/bob) |
 | Setup time | Seconds | ~5 minutes |
 | Dependencies | Go, kcp binary | Docker, Kind, Helm |
+
+## Alternative: upstream kubernetes-mcp-server
+
+Instead of the built-in MCP server, you can deploy the upstream [kubernetes-mcp-server](https://github.com/containers/kubernetes-mcp-server) as a separate pod. This is useful for comparing behavior or if you need kcp-specific toolsets (`--cluster-provider=kcp`) that the built-in server doesn't cover.
+
+### Deploy
+
+```sh
+make -C hack/kind install-mcp-upstream
+```
+
+This deploys a `Kubeconfig` CR (generates a kcp admin kubeconfig secret) and installs kubernetes-mcp-server via Helm with `--cluster-provider=kcp --toolsets=core,config,kcp --stateless`.
+
+### Switch the MCPRoute backend
+
+After deploying, update `hack/kind/manifests/ai-gateway/mcp-route.yaml` to point at the upstream server instead of access-vw:
+
+```yaml
+  backendRefs:
+    - name: mcp-server-kubernetes-mcp-server
+      kind: Service
+      port: 8080
+      path: /mcp
+      forwardHeaders:
+        - name: Authorization
+```
+
+Then re-apply:
+
+```sh
+kubectl apply -k hack/kind/manifests/ai-gateway
+```
+
+### Remove
+
+```sh
+make -C hack/kind uninstall-mcp-upstream
+```
+
+> **Note:** The upstream MCP server uses an admin-level kubeconfig. When an MCP request includes a bearer token, it creates a per-request kcp client using that token (token passthrough). Without SCAR integration, it lists all workspaces the kubeconfig can reach; the AI Gateway's OAuth ensures only authenticated users can access the MCP endpoint.
