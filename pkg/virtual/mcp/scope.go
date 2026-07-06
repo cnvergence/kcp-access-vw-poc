@@ -41,6 +41,17 @@ func NewClientFactory(baseConfig *rest.Config) (*ClientFactory, error) {
 	}, nil
 }
 
+// NewClientFactoryFromHost creates a ClientFactory from a bare host URL.
+// Useful for tests where no real cluster connection is needed.
+func NewClientFactoryFromHost(host string) (*ClientFactory, error) {
+	return NewClientFactory(&rest.Config{
+		Host: host,
+		TLSClientConfig: rest.TLSClientConfig{
+			Insecure: true,
+		},
+	})
+}
+
 // Clients returns typed and dynamic clients for the given workspace endpoint,
 // using the caller's bearer token for authentication.
 func (f *ClientFactory) Clients(endpoint, token string) (kubernetes.Interface, dynamic.Interface, error) {

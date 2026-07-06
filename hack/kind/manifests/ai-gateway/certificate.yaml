@@ -1,5 +1,6 @@
 # TLS certificate for the MCP Gateway.
-# Uses a self-signed CA so the Gateway can terminate HTTPS.
+# Provisioned for future HTTPS termination; the Gateway currently listens on
+# plain HTTP (port 8080) so this secret is not yet referenced.
 apiVersion: cert-manager.io/v1
 kind: Issuer
 metadata:

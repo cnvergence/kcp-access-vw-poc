@@ -87,6 +87,15 @@ func parseGVR(apiVersion, kind, group, version, resource string) (schema.GroupVe
 	return schema.GroupVersionResource{}, fmt.Errorf("provide either apiVersion+kind or group+version+resource")
 }
 
+// resourceLabel returns a human-readable label for a resource type.
+// Uses kind if provided, falls back to the GVR resource name.
+func resourceLabel(kind, resource string) string {
+	if kind != "" {
+		return kind
+	}
+	return resource
+}
+
 func registerListResources(server *mcp.Server, scope Scope) {
 	mcp.AddTool(server, &mcp.Tool{
 		Name: "list_resources",

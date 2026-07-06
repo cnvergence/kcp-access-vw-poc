@@ -413,7 +413,7 @@ Optionally set gracePeriodSeconds for controlled termination (0 = immediate).`,
 		}
 
 		return nil, DeleteResourceOutput{
-			Message: fmt.Sprintf("Deleted %s %s", input.Kind, input.Name),
+			Message: fmt.Sprintf("Deleted %s %s", resourceLabel(input.Kind, gvr.Resource), input.Name),
 		}, nil
 	})
 }

@@ -113,7 +113,9 @@ func errorServer(msg string) *mcp.Server {
 		Name:        "error",
 		Description: "Returns server initialization error",
 	}, func(_ context.Context, _ *mcp.CallToolRequest, _ errorInput) (*mcp.CallToolResult, errorOutput, error) {
-		return nil, errorOutput{}, fmt.Errorf("MCP server unavailable: %s", msg)
+		return &mcp.CallToolResult{
+			IsError: true,
+		}, errorOutput{Error: fmt.Sprintf("MCP server unavailable: %s", msg)}, nil
 	})
 
 	return server
