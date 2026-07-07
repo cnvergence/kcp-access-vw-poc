@@ -1,40 +1,46 @@
 # kcp-access-vw
 
-Permission-aware workspace discovery for [kcp](https://www.kcp.io/). Implements the **Access Virtual Workspace** — a lightweight HTTP service that answers "which workspaces does this user have access to?" with a single API call (a **SelfClusterAccessReview**, or **SCAR**) instead of N individual `SelfSubjectAccessReviews`.
+Permission-aware workspace discovery for [kcp](https://www.kcp.io/). Implements the **Access Virtual Workspace** — a lightweight HTTP service that answers "which workspaces does this user have access to?" with a single API call (a **SelfClusterAccessReview**, or **SCAR**) instead of N individual `SelfSubjectAccessReviews`. Includes a **built-in MCP server** that exposes kcp workspace tools scoped to the caller's permissions.
 
 ## How it works
 
 ```
-┌──────────────┐         ┌──────────────────┐         ┌─────────┐
-│  MCP client  │◀────────│  MCP server      │◀────────│  SCAR   │
-│  (Copilot,   │  scoped │  (kube-mcp)      │  scoped │  HTTP   │
-│   Claude)    │  tools  │                  │  config │  API    │
-└──────────────┘         └──────────────────┘         └────┬────┘
-                                                           │
-                                                ┌──────────┴───────────┐
-                                                │   In-memory RBAC     │
-                                                │   permission graph   │
-                                                │                      │
-                                                │  watches CRBs/RBs    │
-                                                │  across all bound    │
-                                                │  workspaces          │
-                                                └──────────────────────┘
+┌──────────────┐         ┌──────────────────┐
+│  MCP client  │◀────────│  access-vw       │
+│  (Copilot,   │  scoped │  ┌────────────┐  │
+│   Claude)    │  tools  │  │ MCP server │  │
+└──────────────┘         │  └─────┬──────┘  │
+                         │        │         │
+                         │  ┌─────┴──────┐  │
+                         │  │ permission │  │
+                         │  │   graph    │  │
+                         │  └─────┬──────┘  │
+                         │        │         │
+                         │  ┌─────┴──────┐  │
+                         │  │ RBAC watch │  │
+                         │  │ (CRBs/RBs) │  │
+                         │  └────────────┘  │
+                         └──────────────────┘
 ```
 
 1. **Indexing:** The server watches `ClusterRoleBindings` and `RoleBindings` across every kcp workspace that has bound the `access.kcp.io` APIExport. These bindings are translated into an in-memory permission graph mapping subjects (users, groups, service accounts) to logical clusters.
 
-2. **Querying:** A caller POSTs to the SCAR endpoint with a bearer token (or trusted headers behind a front-proxy). The server resolves the caller's identity and returns the list of `(clusterName, endpoint)` pairs the caller can access.
+2. **Querying (SCAR):** A caller POSTs to the SCAR endpoint with a bearer token (or trusted headers behind a front-proxy). The server resolves the caller's identity and returns the list of `(clusterName, endpoint)` pairs the caller can access.
 
-3. **Consuming:** The SCAR response feeds into any client that understands kubeconfig — an MCP server, a CLI, a dashboard. The included `scar-to-kubeconfig` tool converts SCAR output into a scoped kubeconfig directly.
+3. **MCP tools:** The built-in MCP server authenticates each request via TokenReview against kcp, queries the same in-process permission graph, and exposes Kubernetes + kcp tools scoped to only the caller's authorized workspaces. Tools include `list_resources`, `get_resource`, `create_resource`, `update_resource`, `delete_resource`, and kcp-specific `list_kcp_workspaces` / `create_kcp_workspace`.
+
+4. **Consuming (SCAR):** The SCAR response can also feed into any client that understands kubeconfig — a CLI, a dashboard, etc. The included `scar-to-kubeconfig` tool converts SCAR output into a scoped kubeconfig directly.
 
 ## Components
 
 | Path | Description |
 |------|-------------|
-| `cmd/server` | Main binary. Runs the RBAC indexer + SCAR HTTP endpoint. |
+| `cmd/server` | Main binary. Runs the RBAC indexer + SCAR + MCP HTTP endpoints. |
 | `cmd/scar-to-kubeconfig` | Helper that calls SCAR and writes a scoped kubeconfig. |
 | `pkg/graph` | In-memory permission graph. No kcp imports — cleanly extractable. |
 | `pkg/rbacprovider` | Watches CRBs/RBs via multicluster-runtime, translates into graph grants. |
+| `pkg/virtual/mcp` | Built-in MCP server. Authenticates via TokenReview, scopes tools to caller's workspaces. |
+| `pkg/virtual/mcp/tools` | MCP tool handlers: generic K8s resources + kcp-specific (workspaces). |
 | `pkg/virtual/scar` | SCAR HTTP handler. Reads from the graph. |
 | `pkg/virtual/auth` | Auth resolver chain: bearer token (TokenReview), client cert, trusted headers. |
 | `pkg/apis/access/v1alpha1` | `SelfClusterAccessReview` API types. |
@@ -43,9 +49,8 @@ Permission-aware workspace discovery for [kcp](https://www.kcp.io/). Implements 
 | `config/examples` | Example APIBinding for consumer workspaces to opt in. |
 | `config/rbac` | Per-user RBAC seed files (alice=cluster-admin, bob=view+workspace-user). |
 | `hack/kind/` | Kind-based full-stack setup (Makefile, manifests, helm values, scripts). |
-| `hack/kind/manifests/` | Plain K8s manifests organized by component, applied via `kubectl apply -k`. |
-| `hack/kind/helm/` | Helm values files for chart installations (Envoy, Keycloak, MCP server). |
-| `docs/` | Testing guides, upstream contribution notes. |
+| `docs/` | Testing guides ([local](docs/local-testing.md), [Kind](docs/kind-testing.md)). |
+| `site/` | GitHub Pages documentation site. |
 
 ## Quick start
 
@@ -85,7 +90,7 @@ See [`docs/local-testing.md`](docs/local-testing.md) for the full walkthrough.
 
 ### Kind-based setup (full stack)
 
-Deploys the complete ADR 007 architecture into a local Kind cluster — kcp (single shard, multi-shard code path), Envoy AI Gateway (HTTPS), Keycloak (OIDC), access-vw, and kubernetes-mcp-server:
+Deploys the complete ADR 007 architecture into a local Kind cluster — kcp (single shard, multi-shard code path), Envoy AI Gateway with OAuth, Keycloak (OIDC), and access-vw with built-in MCP server:
 
 ```sh
 make kind-setup     # ~5 min, creates everything
@@ -110,14 +115,19 @@ Proves end-to-end that an MCP client sees only the workspaces SCAR authorizes, u
 # 1. Start with bearer-token auth (no trusted headers)
 make run-access-vw-tokenauth
 
-# 2. Generate a scoped kubeconfig from SCAR
-make mcp-demo
-
-# 3. Run the MCP server
-kubernetes-mcp-server --kubeconfig=scar.kubeconfig --cluster-provider=kcp
-
-# 4. Connect your MCP client (Copilot CLI, Claude Code, etc.)
+# 2. Connect your MCP client directly to the built-in MCP endpoint
+#    Add to your MCP client config:
+#    { "mcpServers": { "kcp": { "type": "http", "url": "http://localhost:9099/services/access-virtual-workspace/mcp" } } }
 ```
+
+Alternatively, use `scar-to-kubeconfig` to generate a scoped kubeconfig and feed it to the upstream `kubernetes-mcp-server`:
+
+```sh
+make mcp-demo    # generates a scoped kubeconfig from SCAR
+kubernetes-mcp-server --kubeconfig=scar.kubeconfig --cluster-provider=kcp
+```
+
+See [`docs/local-testing.md`](docs/local-testing.md) for the full walkthrough.
 
 ### Cleanup
 
@@ -157,6 +167,24 @@ curl -s http://localhost:9099/debug/graph | jq
 
 Returns the current graph state: all subjects and their cluster mappings.
 
+## MCP endpoint
+
+**Endpoint:** `POST /services/access-virtual-workspace/mcp`
+
+The built-in MCP server uses [streamable HTTP](https://modelcontextprotocol.io/specification/2025-03-26/basic/transports#streamable-http) transport (stateless mode). Each request authenticates via TokenReview, queries the permission graph, and returns tools scoped to the caller's workspaces.
+
+**Available tools:**
+
+| Tool | Description |
+|------|-------------|
+| `list_kcp_workspaces` | List workspaces accessible to the caller |
+| `create_kcp_workspace` | Create a child workspace |
+| `list_resources` | List any Kubernetes resource type in a workspace |
+| `get_resource` | Get a specific resource by name |
+| `create_resource` | Create a resource from YAML/JSON |
+| `update_resource` | Update an existing resource |
+| `delete_resource` | Delete a resource |
+
 ## Architecture
 
 The server supports two run modes:
@@ -186,7 +214,9 @@ See [`config/README.md`](config/README.md) for production deployment instruction
 
 ## Status
 
-> **Proof of concept — SCAR is working end-to-end.** The Kind setup demonstrates the full ADR 007 architecture with a single-shard kcp deployment running the multi-shard code path (`-apiexport-endpointslice`): OIDC authentication via Keycloak, MCP routing via Envoy AI Gateway (HTTPS), per-user workspace scoping via SCAR, and RBAC indexing via the APIExport provider. Expect APIs and package layout to evolve.
+> **Proof of concept — SCAR + built-in MCP working end-to-end.** The Kind setup demonstrates the full ADR 007 architecture with a single-shard kcp deployment running the multi-shard code path (`-apiexport-endpointslice`): OIDC authentication via Keycloak, MCP routing via Envoy AI Gateway with OAuth, per-user workspace scoping via the in-process permission graph, and RBAC indexing via the APIExport provider. The built-in MCP server exposes kcp workspace tools scoped to the authenticated caller — no separate MCP server binary needed. Expect APIs and package layout to evolve.
+
+📖 **Documentation site:** [cnvergence.github.io/kcp-access-vw-poc](https://cnvergence.github.io/kcp-access-vw-poc/)
 
 ## License
 
