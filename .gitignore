@@ -38,3 +38,4 @@ hack/kind/admin.kubeconfig
 # .idea/
 # .vscode/
 hack/kind/certs/
+mcp.json

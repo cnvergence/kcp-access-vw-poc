@@ -42,6 +42,7 @@ spec:
     name: keycloak-ca-issuer
     kind: Issuer
   dnsNames:
+    - keycloak.kcp.example
     - keycloak-keycloakx-http
     - keycloak-keycloakx-http.keycloak
     - keycloak-keycloakx-http.keycloak.svc.cluster.local

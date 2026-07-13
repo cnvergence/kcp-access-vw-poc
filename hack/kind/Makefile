@@ -117,19 +117,8 @@ install-envoy: ## Install Envoy Gateway + AI Gateway (helm)
 
 .PHONY: install-keycloak
 install-keycloak: ## Install Keycloak (helm + TLS + configure realm)
-	$(call info,Creating Keycloak TLS certificate)
-	@$(KC) create namespace $(KEYCLOAK_NS) --dry-run=client -o yaml | $(KC) apply -f -
-	@$(KC) apply -k manifests/keycloak
-	@$(KC) wait --for=condition=Ready certificate/keycloak-tls -n $(KEYCLOAK_NS) --timeout=60s
-	# Copy Keycloak CA to kcp-system so RootShard/FrontProxy can trust it
-	$(call info,Copying Keycloak CA to $(KCP_NS))
-	@$(KC) create namespace $(KCP_NS) --dry-run=client -o yaml | $(KC) apply -f -
-	@$(KC) get secret keycloak-ca -n $(KEYCLOAK_NS) -o jsonpath='{.data.ca\.crt}' | \
-		base64 -d > /tmp/keycloak-ca.crt
-	@$(KC) create secret generic keycloak-ca -n $(KCP_NS) \
-		--from-file=ca.crt=/tmp/keycloak-ca.crt \
-		--dry-run=client -o yaml | $(KC) apply -f -
-	@rm -f /tmp/keycloak-ca.crt
+	$(call info,Creating Keycloak TLS certificate via mkcert)
+	@scripts/create-keycloak-certs.sh
 	$(call info,Installing Keycloak via Helm)
 	@helm repo add codecentric https://codecentric.github.io/helm-charts 2>/dev/null || true
 	@helm repo update codecentric
@@ -158,11 +147,17 @@ install-kcp: ## Install kcp-operator + etcd + RootShard + FrontProxy
 	@$(KC) wait --for=condition=Available rootshard/root -n $(KCP_NS) --timeout=300s
 	$(call info,Waiting for FrontProxy)
 	@$(KC) wait --for=condition=Available frontproxy/frontproxy -n $(KCP_NS) --timeout=300s
-	# Patch RootShard with hostAliases so kcp pods can reach root.kcp.example
+	# Patch RootShard with hostAliases so kcp pods can reach root.kcp.example and keycloak.kcp.example
 	$(call info,Patching RootShard hostAliases)
 	@FP_IP=$$($(KC) get svc frontproxy-front-proxy -n $(KCP_NS) -o jsonpath='{.spec.clusterIP}'); \
+	KC_IP=$$($(KC) get svc keycloak-keycloakx-http -n keycloak -o jsonpath='{.spec.clusterIP}'); \
 	$(KC) patch rootshard root -n $(KCP_NS) --type merge -p " \
-	  {\"spec\":{\"deploymentTemplate\":{\"spec\":{\"template\":{\"spec\":{\"hostAliases\":[{\"ip\":\"$$FP_IP\",\"hostnames\":[\"root.kcp.example\"]}]}}}}}}"
+	  {\"spec\":{\"deploymentTemplate\":{\"spec\":{\"template\":{\"spec\":{\"hostAliases\":[{\"ip\":\"$$FP_IP\",\"hostnames\":[\"root.kcp.example\"]},{\"ip\":\"$$KC_IP\",\"hostnames\":[\"keycloak.kcp.example\"]}]}}}}}}"
+	# Patch FrontProxy with hostAliases so it can reach keycloak.kcp.example for OIDC
+	$(call info,Patching FrontProxy hostAliases)
+	@KC_IP=$$($(KC) get svc keycloak-keycloakx-http -n keycloak -o jsonpath='{.spec.clusterIP}'); \
+	$(KC) patch frontproxy frontproxy -n $(KCP_NS) --type merge -p " \
+	  {\"spec\":{\"deploymentTemplate\":{\"spec\":{\"template\":{\"spec\":{\"hostAliases\":[{\"ip\":\"$$KC_IP\",\"hostnames\":[\"keycloak.kcp.example\"]}]}}}}}}"
 	$(call wait-for-deployment,$(KCP_NS),root-kcp,120s)
 	# Restart kcp components to pick up OIDC (Keycloak must be deployed first)
 	$(call info,Restarting kcp for OIDC discovery)
@@ -278,7 +273,7 @@ setup: ## Full end-to-end setup
 	@MCP_IP=$$($(KC) get svc -n envoy-gateway-system \
 		-l gateway.envoyproxy.io/owning-gateway-name=kcp-mcp-gateway \
 		-o jsonpath='{.items[0].status.loadBalancer.ingress[0].ip}' 2>/dev/null); \
-	echo "==> MCP endpoint:   https://mcp.kcp.example:8443/mcp  (IP: $${MCP_IP:-pending})"; \
+	echo "==> MCP endpoint:   http://mcp.kcp.example:8080/mcp  (IP: $${MCP_IP:-pending})"; \
 	echo "==> Keycloak:       https://keycloak.kcp.example:8443  (admin/admin)"; \
 	echo "==> kcp FrontProxy: https://root.kcp.example:6443"; \
 	echo "==> kcp admin:      export KUBECONFIG=$(SCRIPT_DIR)/admin.kubeconfig"; \
@@ -291,7 +286,7 @@ setup: ## Full end-to-end setup
 	echo "==> Get token:      $(SCRIPT_DIR)/scripts/get-oidc-token.sh alice"; \
 	echo ""; \
 	echo "==> To connect Claude Code, add to .mcp.json:"; \
-	echo '==>   { "mcpServers": { "kcp": { "type": "http", "url": "https://mcp.kcp.example:8443/mcp" } } }'
+	echo '==>   { "mcpServers": { "kcp": { "type": "http", "url": "http://mcp.kcp.example:8080/mcp" } } }'
 
 # ── Utilities ────────────────────────────────────────────────────────────────
 
