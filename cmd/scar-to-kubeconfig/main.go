@@ -18,6 +18,7 @@ import (
 	"log"
 	"net/http"
 	"os"
+	"strings"
 	"time"
 
 	"k8s.io/client-go/tools/clientcmd"
@@ -75,11 +76,12 @@ func callSCAR(scarURL, token string, insecure bool) ([]scarCluster, error) {
 		}
 	}
 
-	req, err := http.NewRequest(http.MethodPost, scarURL, nil)
+	req, err := http.NewRequest(http.MethodPost, scarURL, strings.NewReader("{}"))
 	if err != nil {
 		return nil, fmt.Errorf("create request: %w", err)
 	}
 	req.Header.Set("Authorization", "Bearer "+token)
+	req.Header.Set("Content-Type", "application/json")
 
 	resp, err := client.Do(req)
 	if err != nil {
@@ -92,7 +94,9 @@ func callSCAR(scarURL, token string, insecure bool) ([]scarCluster, error) {
 		return nil, fmt.Errorf("read response: %w", err)
 	}
 
-	if resp.StatusCode != http.StatusOK {
+	// The apiserver create endpoint returns 201 Created; older raw
+	// handlers returned 200. Accept both.
+	if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusCreated {
 		return nil, fmt.Errorf("SCAR returned %d: %s", resp.StatusCode, string(body))
 	}
 

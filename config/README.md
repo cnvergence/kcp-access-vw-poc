@@ -51,6 +51,7 @@ Once all four layers are in place:
 ```sh
 curl -k -X POST \
   -H "Authorization: Bearer $KCP_TOKEN" \
+  -H "Content-Type: application/json" -d '{}' \
   https://kcp.example.com/services/access/apis/access.kcp.io/v1alpha1/selfclusteraccessreviews
 ```
 

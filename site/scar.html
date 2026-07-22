@@ -40,7 +40,7 @@
       <div class="example">
         <div class="example-title"><span>curl examples</span></div>
         <pre><code># Via the kcp front-proxy
-curl -k -X POST   -H "Authorization: Bearer $KCP_TOKEN"   https://root.kcp.example:6443/services/access/apis/access.kcp.io/v1alpha1/selfclusteraccessreviews
+curl -k -X POST   -H "Authorization: Bearer $KCP_TOKEN"   -H "Content-Type: application/json"   -d '{}'   https://root.kcp.example:6443/services/access/apis/access.kcp.io/v1alpha1/selfclusteraccessreviews
 
 # Direct against the virtual workspace (local dev, bearer token)
 curl -k -X POST   -H "Authorization: Bearer $TOKEN"   -H "Content-Type: application/json"   -d '{}'   https://localhost:9443/services/access/apis/access.kcp.io/v1alpha1/selfclusteraccessreviews</code></pre>
