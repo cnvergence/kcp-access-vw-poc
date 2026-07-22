@@ -17,11 +17,11 @@ func slice(name string) graph.AccessEndpointSlice {
 
 func TestGrant(t *testing.T) {
 	tests := []struct {
-		name    string
-		setup   func(*graph.Graph)
-		user    string
-		groups  []string
-		want    []graph.AccessEndpointSlice
+		name   string
+		setup  func(*graph.Graph)
+		user   string
+		groups []string
+		want   []graph.AccessEndpointSlice
 	}{
 		{
 			name: "individual user",

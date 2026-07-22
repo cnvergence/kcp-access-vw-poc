@@ -41,7 +41,7 @@
       <span class="step-num">2</span>
       <div>
         <strong>Identity resolution.</strong>
-        <span>When a user connects, their bearer token is validated via kcp <code>TokenReview</code>. The resolved identity is checked against the permission graph.</span>
+        <span>The apiserver authentication layer resolves the caller — front-proxy requestheader mTLS, bearer token (<code>TokenReview</code> against kcp), or client certificate. The resolved identity is checked against the permission graph.</span>
       </div>
     </li>
     <li>

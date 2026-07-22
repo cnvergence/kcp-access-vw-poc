@@ -31,7 +31,7 @@
 <div class="diagram-wrap">
   <svg viewBox="0 0 900 820" width="100%" role="img" aria-labelledby="auth-title auth-desc" xmlns="http://www.w3.org/2000/svg">
     <title id="auth-title">MCP authentication sequence</title>
-    <desc id="auth-desc">OAuth discovery, dynamic client registration, authorization code flow, MCP request forwarding, TokenReview, and scoped tool response.</desc>
+    <desc id="auth-desc">OAuth discovery, dynamic client registration, authorization code flow, MCP request forwarding via the kcp front-proxy (requestheader identity), permission graph lookup, impersonated workspace calls, and scoped tool response.</desc>
     <defs>
       <marker id="seq-arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
         <path d="M 0 0 L 10 5 L 0 10 z" fill="#4a90d9" />
@@ -99,19 +99,20 @@
     <text x="180" y="373" text-anchor="middle" font-family="Inter, sans-serif" font-weight="600" font-size="12" fill="#1a1c2e">POST /mcp</text>
     <text x="180" y="396" text-anchor="middle" font-family="Inter, sans-serif" font-weight="500" font-size="10" fill="#5a5e78">+ Bearer token</text>
 
-    <!-- 5. Forward to access-vw -->
+    <!-- 5. Forward to access-vw via front-proxy -->
     <line x1="270" y1="420" x2="630" y2="420" stroke="#4a90d9" stroke-width="2" marker-end="url(#seq-arrow)"/>
-    <text x="450" y="413" text-anchor="middle" font-family="Inter, sans-serif" font-weight="600" font-size="12" fill="#1a1c2e">Forward Authorization header</text>
+    <text x="450" y="401" text-anchor="middle" font-family="Inter, sans-serif" font-weight="600" font-size="12" fill="#1a1c2e">Forward via kcp front-proxy (validates OIDC)</text>
+    <text x="450" y="413" text-anchor="middle" font-family="Inter, sans-serif" font-weight="500" font-size="10" fill="#5a5e78">X-Remote-User / X-Remote-Group over requestheader mTLS</text>
 
-    <!-- Phase label: AUTH -->
+    <!-- Phase label: TOOLS -->
     <rect x="12" y="455" rx="4" ry="4" width="48" height="22" fill="#6bbd5b"/>
-    <text x="36" y="470" text-anchor="middle" font-family="Inter, sans-serif" font-weight="700" font-size="10" fill="#fff">AUTH</text>
+    <text x="36" y="470" text-anchor="middle" font-family="Inter, sans-serif" font-weight="700" font-size="10" fill="#fff">TOOLS</text>
 
-    <!-- 6. TokenReview -->
+    <!-- 6. Impersonated workspace calls -->
     <line x1="630" y1="490" x2="810" y2="490" stroke="#4a90d9" stroke-width="2" marker-end="url(#seq-arrow)"/>
-    <text x="720" y="483" text-anchor="middle" font-family="Inter, sans-serif" font-weight="700" font-size="12" fill="#1a1c2e">TokenReview</text>
+    <text x="720" y="483" text-anchor="middle" font-family="Inter, sans-serif" font-weight="700" font-size="12" fill="#1a1c2e">Impersonate-User: alice</text>
     <line x1="810" y1="520" x2="630" y2="520" stroke="#7fa5f0" stroke-width="1.5" stroke-dasharray="5 4" marker-end="url(#seq-arrow-ret)"/>
-    <text x="720" y="537" text-anchor="middle" font-family="Inter, sans-serif" font-weight="600" font-size="12" fill="#48b5c4">user = alice, groups = [...]</text>
+    <text x="720" y="537" text-anchor="middle" font-family="Inter, sans-serif" font-weight="600" font-size="12" fill="#48b5c4">workspace resources (re-authorized)</text>
 
     <!-- 7. Permission graph (local) -->
     <rect x="595" y="570" rx="10" ry="10" width="180" height="50" fill="#f3f4f7" stroke="#dfe2eb" stroke-width="1.5"/>
@@ -121,7 +122,7 @@
     <!-- Note: local lookup -->
     <rect x="590" y="636" rx="8" ry="8" width="260" height="42" fill="#eaf8f0" stroke="#6bbd5b" stroke-width="1.5"/>
     <text x="720" y="654" text-anchor="middle" font-family="Inter, sans-serif" font-weight="600" font-size="11" fill="#3a7a2e">Permission graph lookup is local.</text>
-    <text x="720" y="670" text-anchor="middle" font-family="Inter, sans-serif" font-weight="500" font-size="11" fill="#3a7a2e">Only TokenReview calls kcp.</text>
+    <text x="720" y="670" text-anchor="middle" font-family="Inter, sans-serif" font-weight="500" font-size="11" fill="#3a7a2e">Only impersonated workspace calls reach kcp.</text>
 
     <!-- 8. Response back -->
     <line x1="630" y1="710" x2="270" y2="710" stroke="#7fa5f0" stroke-width="1.5" stroke-dasharray="5 4" marker-end="url(#seq-arrow-ret)"/>
@@ -145,17 +146,14 @@
       <h2>Token validation chain</h2>
       <ol class="step-list">
         <li><span class="step-num">1</span><div><strong>Bearer token.</strong><span>The first resolver calls kcp <code>TokenReview</code> and extracts the authenticated user and groups.</span></div></li>
-        <li><span class="step-num">2</span><div><strong>Client certificate.</strong><span>The next resolver slot is reserved for front-proxy style client-certificate validation when a trusted proxy presents request headers.</span></div></li>
-        <li><span class="step-num">3</span><div><strong>Trusted headers.</strong><span>In the current proof-of-concept, <code>X-Remote-User</code> and <code>X-Remote-Group</code> can be trusted when <code>-trust-headers</code> is enabled.</span></div></li>
+        <li><span class="step-num">2</span><div><strong>Client certificate.</strong><span>Client certificates signed by the CA bundle in <code>--client-ca-file</code> authenticate directly, following standard Kubernetes delegated authentication.</span></div></li>
+        <li><span class="step-num">3</span><div><strong>Front-proxy headers.</strong><span><code>X-Remote-User</code>, <code>X-Remote-Group</code>, and <code>X-Remote-Extra-*</code> are trusted only when the caller presents a client certificate signed by <code>--requestheader-client-ca-file</code>.</span></div></li>
       </ol>
     </section>
 
     <section class="section">
       <h2>Security: trusted headers</h2>
-      <p><code>-trust-headers</code> is safe only when end users cannot reach access-vw directly and a trusted front-proxy is the only caller that can inject <code>X-Remote-*</code> headers.</p>
-      <div class="warning">
-        <p><strong>Production hardening path:</strong> replace blind header trust with Kubernetes-style request-header authentication backed by a client CA. In practice that means validating the caller with a request-header CA configuration such as <code>-requestheader-client-ca-file</code>, so only the approved proxy can speak on behalf of users.</p>
-      </div>
+      <p>Header trust is gated on requestheader client-certificate mTLS: <code>X-Remote-*</code> headers are honored only from callers presenting a client certificate signed by <code>--requestheader-client-ca-file</code> (optionally restricted by <code>--requestheader-allowed-names</code>). This is the same pattern as the Kubernetes API server aggregation layer, so there is no unauthenticated header-trust mode anymore.</p>
     </section>
 
             <nav class="page-nav" aria-label="Pagination"><a href="architecture.html">← System architecture</a><a href="scar.html">SelfClusterAccessReview API →</a></nav>

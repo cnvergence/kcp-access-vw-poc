@@ -86,7 +86,7 @@
     <!-- access-vw panel -->
     <rect x="250" y="200" rx="16" ry="16" width="490" height="240" fill="#ffffff" stroke="#4a90d9" stroke-width="2" stroke-opacity="0.4"/>
     <rect x="250" y="200" rx="16" ry="16" width="490" height="32" fill="url(#grad-header)" opacity="0.1"/>
-    <text x="495" y="223" text-anchor="middle" font-family="Inter, sans-serif" font-weight="800" font-size="14" fill="#1a1c2e">access-vw :9099</text>
+    <text x="495" y="223" text-anchor="middle" font-family="Inter, sans-serif" font-weight="800" font-size="14" fill="#1a1c2e">access-vw :9443</text>
 
     <!-- MCP Handler -->
     <rect x="290" y="252" rx="10" ry="10" width="140" height="54" fill="#eaf2fb" stroke="#4a90d9" stroke-width="1.5"/>
@@ -129,7 +129,7 @@
         <article class="mini-card"><strong>MCP Client</strong><p>Claude Code, Copilot, or any MCP-capable client that authenticates with Keycloak and speaks MCP over HTTP.</p></article>
         <article class="mini-card"><strong>AI Gateway</strong><p>Envoy receives MCP traffic, enforces OAuth, and forwards the caller's <code>Authorization</code> header to the backend path.</p></article>
         <article class="mini-card"><strong>Keycloak</strong><p>OIDC issuer for user login, dynamic client registration, and access tokens with the <code>aud: kcp</code> audience.</p></article>
-        <article class="mini-card"><strong>access-vw</strong><p>A single HTTP service exposing both the MCP handler and the SCAR handler on <code>:9099</code>.</p></article>
+        <article class="mini-card"><strong>access-vw</strong><p>A virtual-workspace root apiserver exposing both virtual workspaces (SCAR and MCP) over TLS on <code>:9443</code>.</p></article>
         <article class="mini-card"><strong>Permission graph</strong><p>An in-memory subject-to-cluster index built from watched <code>ClusterRoleBindings</code> and <code>RoleBindings</code>.</p></article>
         <article class="mini-card"><strong>kcp cluster</strong><p>The source of truth for identity validation and workspace RBAC state across bound workspaces.</p></article>
       </div>
@@ -144,17 +144,16 @@
         </article>
         <article class="mini-card">
           <strong>MCP via AI Gateway</strong>
-          <p>Envoy forwards the raw bearer token. access-vw validates it with kcp <code>TokenReview</code>, resolves the user, and scopes the MCP tools to that user's workspaces.</p>
+          <p>Envoy forwards the bearer token to the kcp front-proxy, which validates it (OIDC) and forwards the identity to access-vw as <code>X-Remote-*</code> headers over requestheader mTLS. access-vw scopes the MCP tools to that user's workspaces.</p>
         </article>
       </div>
     </section>
 
     <section class="section">
-      <h2>POC vs ADR target design</h2>
+      <h2>ADR target design</h2>
       <div class="note">
-        <p><strong>Note:</strong> In the <a href="https://github.com/cnvergence/pm-architecture/blob/ec1fc0d334de2702dbcfb3070d6d01bc2031bbbf/adr/007-mcp-server-for-kcp-and-platform-mesh.md" target="_blank" rel="noreferrer">ADR 007</a> target design, MCP traffic goes through the kcp front-proxy: AI Gateway → front-proxy → access-vw. Front-proxy handles OIDC validation and injects <code>X-Remote-User</code> headers, eliminating the need for <code>TokenReview</code> and the <code>aud: kcp</code> audience mapper.</p>
-        <p>The POC routes the AI Gateway directly to access-vw instead. The reason: kcp's front-proxy <strong>strips the <code>Authorization</code> header</strong> after OIDC validation (standard K8s aggregation behavior). The MCP handler needs the bearer token for downstream K8s API calls to workspace endpoints. Moving to front-proxy routing requires switching the MCP handler from direct token passthrough to <strong>impersonation</strong> (<code>Impersonate-User</code> / <code>Impersonate-Group</code> headers backed by a privileged service account).</p>
-        <p><strong>Next step:</strong> Refactor <code>ClientFactory</code> to use impersonation for downstream calls, then re-route through front-proxy.</p>
+        <p>The setup implements the <a href="https://github.com/cnvergence/pm-architecture/blob/ec1fc0d334de2702dbcfb3070d6d01bc2031bbbf/adr/007-mcp-server-for-kcp-and-platform-mesh.md" target="_blank" rel="noreferrer">ADR 007</a> target design: MCP traffic goes through the kcp front-proxy — AI Gateway → front-proxy → access-vw. The front-proxy handles OIDC validation and forwards identity as <code>X-Remote-User</code> headers over requestheader mTLS.</p>
+        <p>kcp's front-proxy <strong>strips the <code>Authorization</code> header</strong> after OIDC validation (standard K8s aggregation behavior), so the original token never reaches access-vw. Downstream per-workspace calls therefore use <strong>impersonation</strong> (<code>Impersonate-User</code> / <code>Impersonate-Group</code> headers backed by access-vw's own kcp identity, which holds impersonation RBAC). kcp re-authorizes every impersonated request, and audit logs record both identities.</p>
       </div>
     </section>
 

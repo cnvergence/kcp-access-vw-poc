@@ -4,13 +4,18 @@
 
 KUBECONFIG       ?= $(HOME)/.kcp/admin.kubeconfig
 ENDPOINT_BASE    ?= https://localhost:6443/clusters/
-ADDR             ?= :9099
+SECURE_PORT      ?= 9443
 APIEXPORT_SLICE  ?= access.kcp.io
 EXPORT_PATH      ?= root
 WS_ALICE         ?= workspace-alice
 WS_BOB           ?= workspace-bob
 
-SCAR_URL = http://localhost$(ADDR)/services/access-virtual-workspace/apis/access.kcp.io/v1alpha1/selfclusteraccessreviews
+SCAR_URL = https://localhost:$(SECURE_PORT)/services/access/apis/access.kcp.io/v1alpha1/selfclusteraccessreviews
+
+# Bearer token for smoke tests; defaults to the kcp-admin token from the
+# local kcp admin kubeconfig. Override TOKEN for other identities.
+TOKEN ?= $(shell kubectl --kubeconfig $(KUBECONFIG) config view --raw \
+	-o jsonpath='{.users[?(@.name=="kcp-admin")].user.token}' 2>/dev/null)
 
 .PHONY: help
 help: ## Show available targets
@@ -92,46 +97,33 @@ cleanup: ## Remove all test resources: RBAC, workspaces, APIExport
 # ── Run against kcp ──────────────────────────────────────────────────
 
 .PHONY: run-access-vw
-run-access-vw: build ## Run against kcp with trusted headers (for smoke tests with X-Remote-User)
+run-access-vw: build ## Run against kcp (TLS on $(SECURE_PORT), bearer tokens via TokenReview; self-signs a dev cert)
 	./bin/access-vw \
-		-addr $(ADDR) \
-		-kubeconfig $(KUBECONFIG) \
-		-apiexport-endpointslice $(APIEXPORT_SLICE) \
-		-endpoint-base $(ENDPOINT_BASE) \
-		-trust-headers
-
-.PHONY: run-access-vw-tokenauth
-run-access-vw-tokenauth: build ## Run against kcp with bearer-token auth (for MCP demo)
-	./bin/access-vw \
-		-addr $(ADDR) \
-		-kubeconfig $(KUBECONFIG) \
-		-apiexport-endpointslice $(APIEXPORT_SLICE) \
-		-endpoint-base $(ENDPOINT_BASE)
+		--secure-port $(SECURE_PORT) \
+		--kubeconfig $(KUBECONFIG) \
+		--apiexport-endpointslice $(APIEXPORT_SLICE) \
+		--endpoint-base $(ENDPOINT_BASE)
 
 #Smoke tests
+# The server validates bearer tokens via TokenReview against kcp;
+# identity comes from the token (no header spoofing). Override TOKEN
+# to test other identities (e.g. a ServiceAccount token).
 
-.PHONY: scar-alice
-scar-alice: ## Issue a SCAR as user=alice (requires -trust-headers)
-	@curl -sf -X POST -H 'X-Remote-User: alice' $(SCAR_URL) | jq
-
-.PHONY: scar-eng
-scar-eng: ## Issue a SCAR as a user in group=eng
-	@curl -sf -X POST \
-		-H 'X-Remote-User: someone' \
-		-H 'X-Remote-Group: eng' \
+.PHONY: scar
+scar: ## Issue a SCAR as the caller identified by $(TOKEN)
+	@curl -ksf -X POST \
+		-H "Authorization: Bearer $(TOKEN)" \
+		-H 'Content-Type: application/json' -d '{}' \
 		$(SCAR_URL) | jq
 
-.PHONY: scar-multi
-scar-multi: ## Issue a SCAR as alice in groups eng+platform
-	@curl -sf -X POST \
-		-H 'X-Remote-User: alice' \
-		-H 'X-Remote-Group: eng' \
-		-H 'X-Remote-Group: platform' \
-		$(SCAR_URL) | jq
+.PHONY: debug-graph
+debug-graph: ## Dump the access graph (authenticated)
+	@curl -ksf -H "Authorization: Bearer $(TOKEN)" \
+		https://localhost:$(SECURE_PORT)/debug/graph | jq
 
 .PHONY: healthz
 healthz: ## Hit /healthz
-	@curl -sf http://localhost$(ADDR)/healthz; echo
+	@curl -ksf https://localhost:$(SECURE_PORT)/healthz; echo
 
 #MCP demo
 

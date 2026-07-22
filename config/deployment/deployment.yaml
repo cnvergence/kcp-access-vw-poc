@@ -7,11 +7,11 @@
 # for the PoC) or fronting with a cache + leader election; for now,
 # stick to one replica.
 #
-# Auth model: the server trusts X-Remote-User / X-Remote-Group
-# headers as authoritative. That is only safe behind kcp's
-# FrontProxy, which authenticates the caller (bearer token / cert)
-# and rewrites those headers before forwarding. Do not expose this
-# Service externally.
+# Auth model: the server is a virtual-workspace root apiserver with
+# standard delegated authentication. X-Remote-* identity headers are
+# trusted only from callers presenting a client certificate signed by
+# --requestheader-client-ca-file (kcp's FrontProxy); bearer tokens are
+# validated via TokenReview against kcp. Serving is TLS-only.
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -36,28 +36,45 @@ spec:
           image: ghcr.io/cnvergence/kcp-access-vw:latest
           imagePullPolicy: IfNotPresent
           args:
-            - -addr=:8080
-            - -kubeconfig=/etc/kcp/kubeconfig/kubeconfig
-            - -apiexport-endpointslice=access.kcp.io
+            - --secure-port=9443
+            # Serving cert; must be verifiable by the FrontProxy's
+            # backend_server_ca for the /services/access and
+            # /services/mcp path mappings.
+            - --tls-cert-file=/etc/access-vw/tls/tls.crt
+            - --tls-private-key-file=/etc/access-vw/tls/tls.key
+            # CA bundle that signed the FrontProxy's requestheader
+            # client certificate; identity headers are only trusted
+            # over mTLS with this CA.
+            - --requestheader-client-ca-file=/etc/access-vw/requestheader-ca/ca.crt
+            - --kubeconfig=/etc/kcp/kubeconfig/kubeconfig
+            - --apiexport-endpointslice=access.kcp.io
             # endpoint-base must match the FrontProxy URL prefix used
             # to address bound workspaces. Set per-deployment.
-            - -endpoint-base=https://kcp.example.com/clusters/
+            - --endpoint-base=https://kcp.example.com/clusters/
           ports:
-            - name: http
-              containerPort: 8080
+            - name: https
+              containerPort: 9443
           readinessProbe:
             httpGet:
-              path: /healthz
-              port: http
+              path: /readyz
+              port: https
+              scheme: HTTPS
             periodSeconds: 5
           livenessProbe:
             httpGet:
-              path: /healthz
-              port: http
+              path: /livez
+              port: https
+              scheme: HTTPS
             periodSeconds: 30
           volumeMounts:
             - name: kubeconfig
               mountPath: /etc/kcp/kubeconfig
+              readOnly: true
+            - name: serving-cert
+              mountPath: /etc/access-vw/tls
+              readOnly: true
+            - name: requestheader-ca
+              mountPath: /etc/access-vw/requestheader-ca
               readOnly: true
           resources:
             requests:
@@ -74,6 +91,15 @@ spec:
             # workspace's kubeconfig with the system identity that
             # owns access.kcp.io.
             secretName: access-vw-kubeconfig
+        - name: serving-cert
+          secret:
+            # kubernetes.io/tls secret with the VW's serving cert.
+            secretName: access-vw-server
+        - name: requestheader-ca
+          secret:
+            # Key "ca.crt": CA that signed the FrontProxy's
+            # requestheader client certificate.
+            secretName: access-vw-requestheader-ca
 ---
 apiVersion: v1
 kind: ServiceAccount
@@ -91,6 +117,6 @@ spec:
   selector:
     app.kubernetes.io/name: access-vw
   ports:
-    - name: http
-      port: 80
-      targetPort: http
+    - name: https
+      port: 9443
+      targetPort: https

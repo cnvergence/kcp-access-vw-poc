@@ -174,9 +174,9 @@ func (g *Graph) Ready() bool {
 
 // Snapshot is a point-in-time view of the graph for diagnostics.
 type Snapshot struct {
-	Ready    bool                          `json:"ready"`
-	Subjects map[string][]string           `json:"subjects"` // subject → cluster names
-	Clusters map[string]string             `json:"clusters"` // cluster name → endpoint
+	Ready    bool                `json:"ready"`
+	Subjects map[string][]string `json:"subjects"` // subject → cluster names
+	Clusters map[string]string   `json:"clusters"` // cluster name → endpoint
 }
 
 // Snapshot returns a read-consistent, JSON-friendly view of the graph.

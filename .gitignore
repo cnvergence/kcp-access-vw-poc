@@ -39,3 +39,4 @@ hack/kind/admin.kubeconfig
 # .vscode/
 hack/kind/certs/
 mcp.json
+temp/

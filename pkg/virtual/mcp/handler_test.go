@@ -2,7 +2,6 @@ package mcp_test
 
 import (
 	"bufio"
-	"context"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -10,22 +9,23 @@ import (
 	"strings"
 	"testing"
 
+	"k8s.io/apiserver/pkg/authentication/user"
+	genericapirequest "k8s.io/apiserver/pkg/endpoints/request"
+
 	"github.com/cnvergence/kcp-access-vw/pkg/graph"
-	"github.com/cnvergence/kcp-access-vw/pkg/virtual/auth"
 	"github.com/cnvergence/kcp-access-vw/pkg/virtual/mcp"
 )
 
-// stubResolver always returns a fixed identity or error.
-type stubResolver struct {
-	id  *auth.Identity
-	err error
-}
-
-func (s *stubResolver) Resolve(_ context.Context, _ *http.Request) (*auth.Identity, error) {
-	if s.err != nil {
-		return nil, s.err
-	}
-	return s.id, nil
+// withUser wraps a handler and injects the given user into the request
+// context, standing in for the root apiserver's authentication filter.
+// A nil user simulates the filter not having run.
+func withUser(h http.Handler, u user.Info) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if u != nil {
+			r = r.WithContext(genericapirequest.WithUser(r.Context(), u))
+		}
+		h.ServeHTTP(w, r)
+	})
 }
 
 // parseSSEResponse extracts the first JSON-RPC response from an SSE body.
@@ -54,34 +54,39 @@ func parseSSEResponse(t *testing.T, body string) map[string]any {
 func newMCPRequest(t *testing.T, method string) *http.Request {
 	t.Helper()
 	body := fmt.Sprintf(`{"jsonrpc":"2.0","id":1,"method":%q}`, method)
-	req := httptest.NewRequest(http.MethodPost, mcp.Path, strings.NewReader(body))
+	req := httptest.NewRequest(http.MethodPost, "/", strings.NewReader(body))
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("Accept", "application/json, text/event-stream")
-	req.Header.Set("Authorization", "Bearer test-token")
 	return req
+}
+
+// listTools serves a tools/list request against the handler and returns
+// the tools array.
+func listTools(t *testing.T, h http.Handler) []any {
+	t.Helper()
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, newMCPRequest(t, "tools/list"))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", rec.Code, rec.Body.String())
+	}
+	resp := parseSSEResponse(t, rec.Body.String())
+	result, ok := resp["result"].(map[string]any)
+	if !ok {
+		t.Fatalf("no result in response: %v", resp)
+	}
+	tools, ok := result["tools"].([]any)
+	if !ok {
+		t.Fatalf("no tools in result: %v", result)
+	}
+	return tools
 }
 
 func TestHandler_GraphNotReady(t *testing.T) {
 	g := graph.New() // not ready
 
-	mux := http.NewServeMux()
-	cf := mustClientFactory(t)
-	mcp.Register(mux, g, &stubResolver{
-		id: &auth.Identity{Username: "alice"},
-	}, &mcp.Options{
-		ClientFactory: cf,
-	})
+	h := withUser(mcp.NewHandler(g, mustClientFactory(t)), &user.DefaultInfo{Name: "alice"})
 
-	rec := httptest.NewRecorder()
-	mux.ServeHTTP(rec, newMCPRequest(t, "tools/list"))
-
-	if rec.Code != http.StatusOK {
-		t.Fatalf("expected 200, got %d: %s", rec.Code, rec.Body.String())
-	}
-
-	resp := parseSSEResponse(t, rec.Body.String())
-	result := resp["result"].(map[string]any)
-	tools := result["tools"].([]any)
+	tools := listTools(t, h)
 	if len(tools) != 1 {
 		t.Fatalf("expected 1 error tool, got %d", len(tools))
 	}
@@ -91,30 +96,21 @@ func TestHandler_GraphNotReady(t *testing.T) {
 	}
 }
 
-func TestHandler_AuthFailure(t *testing.T) {
+func TestHandler_MissingUser(t *testing.T) {
 	g := graph.New()
 	g.SetReady()
 
-	mux := http.NewServeMux()
-	cf := mustClientFactory(t)
-	mcp.Register(mux, g, &stubResolver{
-		err: fmt.Errorf("no credentials"),
-	}, &mcp.Options{
-		ClientFactory: cf,
-	})
+	// No user in the request context — simulates the authentication
+	// filter not having run.
+	h := withUser(mcp.NewHandler(g, mustClientFactory(t)), nil)
 
-	rec := httptest.NewRecorder()
-	mux.ServeHTTP(rec, newMCPRequest(t, "tools/list"))
-
-	if rec.Code != http.StatusOK {
-		t.Fatalf("expected 200, got %d: %s", rec.Code, rec.Body.String())
-	}
-
-	resp := parseSSEResponse(t, rec.Body.String())
-	result := resp["result"].(map[string]any)
-	tools := result["tools"].([]any)
+	tools := listTools(t, h)
 	if len(tools) != 1 {
 		t.Fatalf("expected 1 error tool, got %d", len(tools))
+	}
+	tool := tools[0].(map[string]any)
+	if tool["name"] != "error" {
+		t.Errorf("expected error tool, got %q", tool["name"])
 	}
 }
 
@@ -123,24 +119,12 @@ func TestHandler_AuthenticatedUser(t *testing.T) {
 	g.Grant(graph.User("alice"), graph.LogicalCluster("ws1"), "https://kcp.example/clusters/ws1")
 	g.SetReady()
 
-	mux := http.NewServeMux()
-	cf := mustClientFactory(t)
-	mcp.Register(mux, g, &stubResolver{
-		id: &auth.Identity{Username: "alice", Groups: []string{"system:authenticated"}},
-	}, &mcp.Options{
-		ClientFactory: cf,
+	h := withUser(mcp.NewHandler(g, mustClientFactory(t)), &user.DefaultInfo{
+		Name:   "alice",
+		Groups: []string{"system:authenticated"},
 	})
 
-	rec := httptest.NewRecorder()
-	mux.ServeHTTP(rec, newMCPRequest(t, "tools/list"))
-
-	if rec.Code != http.StatusOK {
-		t.Fatalf("expected 200, got %d: %s", rec.Code, rec.Body.String())
-	}
-
-	resp := parseSSEResponse(t, rec.Body.String())
-	result := resp["result"].(map[string]any)
-	tools := result["tools"].([]any)
+	tools := listTools(t, h)
 	// Should have more than 1 tool (all registered tools, not just error)
 	if len(tools) <= 1 {
 		t.Errorf("expected multiple tools for authenticated user, got %d", len(tools))

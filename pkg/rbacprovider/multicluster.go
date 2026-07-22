@@ -78,7 +78,7 @@ func (p *Provider) runMulticluster(ctx context.Context, cfg *rest.Config, g *gra
 	}
 
 	mgr, err := mcmanager.New(cfg, provider, manager.Options{
-		Scheme: sch,
+		Scheme:  sch,
 		Metrics: metricsserver.Options{BindAddress: "0"}, // disable; access-vw has its own HTTP server
 	})
 	if err != nil {

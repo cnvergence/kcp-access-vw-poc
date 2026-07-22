@@ -1,3 +1,27 @@
+# Serving certificate for the access-vw virtual workspace.
+# Issued from the kcp-operator's server CA (an intermediate of root-ca),
+# so the front-proxy can verify it with its existing /etc/kcp/tls/ca mount.
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: access-vw-server
+  namespace: kcp-system
+spec:
+  secretName: access-vw-server
+  issuerRef:
+    name: root-server-ca
+    kind: Issuer
+  dnsNames:
+    - access-vw
+    - access-vw.kcp-system
+    - access-vw.kcp-system.svc
+    - access-vw.kcp-system.svc.cluster.local
+  duration: 8766h
+  usages:
+    - server auth
+    - digital signature
+    - key encipherment
+---
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -20,18 +44,28 @@ spec:
           image: localhost/access-vw:local
           imagePullPolicy: Never
           args:
-            - -addr=:9099
-            - -kubeconfig=/etc/kcp/admin.kubeconfig
-            - -trust-headers
-            - -endpoint-base=https://root.kcp.example:6443/clusters/
-            - -apiexport-endpointslice=access.kcp.io
+            # TLS serving — the front-proxy verifies this cert against root-ca.
+            - --secure-port=9443
+            - --tls-cert-file=/etc/access-vw/tls/tls.crt
+            - --tls-private-key-file=/etc/access-vw/tls/tls.key
+            # Trust X-Remote-* identity headers only from clients presenting
+            # a cert signed by the requestheader client CA (the front-proxy).
+            - --requestheader-client-ca-file=/etc/kcp/requestheader-ca/tls.crt
+            - --requestheader-allowed-names=kcp-front-proxy
+            # kcp connection: RBAC provider informers, TokenReview delegate,
+            # and the base identity for impersonated per-workspace MCP calls.
+            - --kubeconfig=/etc/kcp/admin.kubeconfig
+            - --apiexport-endpointslice=access.kcp.io
+            # Per-cluster endpoints returned in SCAR responses (front-proxy URL).
+            - --endpoint-base=https://root.kcp.example:6443/clusters/
           ports:
-            - containerPort: 9099
-              name: http
+            - containerPort: 9443
+              name: https
           readinessProbe:
             httpGet:
-              path: /healthz
-              port: 9099
+              path: /readyz
+              port: 9443
+              scheme: HTTPS
             initialDelaySeconds: 5
             periodSeconds: 10
           resources:
@@ -45,6 +79,12 @@ spec:
             - name: kcp-kubeconfig
               mountPath: /etc/kcp
               readOnly: true
+            - name: serving-cert
+              mountPath: /etc/access-vw/tls
+              readOnly: true
+            - name: requestheader-ca
+              mountPath: /etc/kcp/requestheader-ca
+              readOnly: true
       volumes:
         - name: kcp-kubeconfig
           secret:
@@ -52,6 +92,15 @@ spec:
             items:
               - key: kubeconfig
                 path: admin.kubeconfig
+        - name: serving-cert
+          secret:
+            secretName: access-vw-server
+        - name: requestheader-ca
+          secret:
+            secretName: root-requestheader-client-ca
+            items:
+              - key: tls.crt
+                path: tls.crt
 ---
 apiVersion: v1
 kind: Service
@@ -64,6 +113,6 @@ spec:
   selector:
     app: access-vw
   ports:
-    - port: 9099
-      targetPort: 9099
-      name: http
+    - port: 9443
+      targetPort: 9443
+      name: https

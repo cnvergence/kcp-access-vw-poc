@@ -31,13 +31,13 @@
   <div class="table-wrap"><table>
     <thead><tr><th>Path</th><th>What it does</th></tr></thead>
     <tbody>
-      <tr><td><code>cmd/server</code></td><td>Main access-vw binary: RBAC provider, SCAR handler, MCP handler, health, and debug endpoints</td></tr>
+      <tr><td><code>cmd/server</code></td><td>Main access-vw binary: RBAC provider + virtual-workspace root apiserver</td></tr>
       <tr><td><code>cmd/scar-to-kubeconfig</code></td><td>Calls SCAR and writes a scoped kubeconfig</td></tr>
+      <tr><td><code>pkg/server</code></td><td>Options and wiring: root apiserver, delegated authentication, per-VW authorization, debug endpoint</td></tr>
       <tr><td><code>pkg/graph</code></td><td>In-memory permission graph and query layer</td></tr>
       <tr><td><code>pkg/rbacprovider</code></td><td>Watches RBAC state and translates grants into graph entries</td></tr>
-      <tr><td><code>pkg/virtual/auth</code></td><td>Identity resolver chain: bearer token, client cert path, trusted headers</td></tr>
-      <tr><td><code>pkg/virtual/scar</code></td><td>SelfClusterAccessReview HTTP endpoint</td></tr>
-      <tr><td><code>pkg/virtual/mcp</code></td><td>MCP transport, scoping, and kcp-native tool registration</td></tr>
+      <tr><td><code>pkg/virtual/scar</code></td><td>Access virtual workspace: create-only REST storage for SelfClusterAccessReview</td></tr>
+      <tr><td><code>pkg/virtual/mcp</code></td><td>MCP virtual workspace: transport, scoping, impersonated per-workspace clients, kcp-native tool registration</td></tr>
       <tr><td><code>config/apiexport</code></td><td>APIExport and APIResourceSchema for <code>access.kcp.io</code></td></tr>
       <tr><td><code>hack/kind</code></td><td>Full-stack Kind automation, manifests, Helm values, and helper scripts</td></tr>
       <tr><td><code>docs/</code></td><td>Walkthroughs for local and Kind-based testing</td></tr>
@@ -50,11 +50,11 @@
   <div class="table-wrap"><table>
     <thead><tr><th>Flag</th><th>Meaning</th></tr></thead>
     <tbody>
-      <tr><td><code>-addr</code></td><td>HTTP listen address for access-vw, default <code>:9099</code></td></tr>
-      <tr><td><code>-kubeconfig</code></td><td>Required path to the kubeconfig used for TokenReview and RBAC watching</td></tr>
-      <tr><td><code>-endpoint-base</code></td><td>Front-proxy URL prefix used when building cluster endpoints in SCAR responses</td></tr>
-      <tr><td><code>-apiexport-endpointslice</code></td><td>Enables multi-shard mode and watches workspaces bound to the named APIExportEndpointSlice</td></tr>
-      <tr><td><code>-trust-headers</code></td><td>Trust <code>X-Remote-User</code> and <code>X-Remote-Group</code>; safe only behind a trusted front-proxy</td></tr>
+      <tr><td><code>--secure-port</code></td><td>TLS serving port for access-vw, default <code>9443</code></td></tr>
+      <tr><td><code>--kubeconfig</code></td><td>Required path to the kubeconfig used for TokenReview and RBAC watching</td></tr>
+      <tr><td><code>--endpoint-base</code></td><td>Front-proxy URL prefix used when building cluster endpoints in SCAR responses</td></tr>
+      <tr><td><code>--apiexport-endpointslice</code></td><td>Enables multi-shard mode and watches workspaces bound to the named APIExportEndpointSlice</td></tr>
+      <tr><td><code>--requestheader-client-ca-file</code></td><td>CA bundle for verifying the front-proxy's client certificate before trusting <code>X-Remote-*</code> identity headers</td></tr>
     </tbody>
   </table></div>
 </section>
@@ -67,7 +67,7 @@
       <tr><td>Keycloak</td><td>Realm <code>kcp</code>, test users <code>alice</code>/<code>bob</code>, dynamic client registration enabled, audience mapping for <code>kcp</code></td></tr>
       <tr><td>Envoy AI Gateway</td><td>Handles HTTPS, OAuth, MCP routing, and bearer-token forwarding to the backend</td></tr>
       <tr><td>kcp</td><td>FrontProxy validates OIDC tokens, exposes logical cluster endpoints, and provides TokenReview for access-vw</td></tr>
-      <tr><td>access-vw</td><td>Runs on <code>:9099</code> with both <code>/mcp</code> and SCAR endpoints backed by the same graph</td></tr>
+      <tr><td>access-vw</td><td>Runs a TLS root apiserver on <code>:9443</code> serving both virtual workspaces backed by the same graph</td></tr>
     </tbody>
   </table></div>
 </section>
@@ -78,9 +78,9 @@
     <thead><tr><th>Path</th><th>Purpose</th></tr></thead>
     <tbody>
       <tr><td><code>POST /mcp</code></td><td>External AI Gateway entrypoint used by MCP clients in the Kind stack</td></tr>
-      <tr><td><code>POST /services/access-virtual-workspace/mcp</code></td><td>Internal access-vw MCP backend path behind the gateway</td></tr>
-      <tr><td><code>POST /services/access-virtual-workspace/apis/access.kcp.io/v1alpha1/selfclusteraccessreviews</code></td><td>SCAR workspace discovery endpoint</td></tr>
-      <tr><td><code>GET /debug/graph</code></td><td>Pretty-printed graph snapshot for debugging</td></tr>
+      <tr><td><code>POST /services/mcp</code></td><td>Internal access-vw MCP backend path behind the gateway (streamable HTTP)</td></tr>
+      <tr><td><code>POST /services/access/apis/access.kcp.io/v1alpha1/selfclusteraccessreviews</code></td><td>SCAR workspace discovery endpoint</td></tr>
+      <tr><td><code>GET /debug/graph</code></td><td>Pretty-printed graph snapshot for debugging; HTTPS, requires an authenticated user</td></tr>
       <tr><td><code>GET /healthz</code></td><td>Readiness probe; returns <code>ok</code> when the graph is ready</td></tr>
     </tbody>
   </table></div>

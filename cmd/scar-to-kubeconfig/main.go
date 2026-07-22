@@ -20,8 +20,8 @@ import (
 	"os"
 	"time"
 
-	clientcmdapi "k8s.io/client-go/tools/clientcmd/api"
 	"k8s.io/client-go/tools/clientcmd"
+	clientcmdapi "k8s.io/client-go/tools/clientcmd/api"
 )
 
 type scarResponse struct {
@@ -34,7 +34,7 @@ type scarResponse struct {
 }
 
 func main() {
-	scarURL := flag.String("scar-url", "", "SCAR endpoint URL (or set SCAR_URL env)")
+	scarURL := flag.String("scar-url", "https://localhost:9443/services/access/apis/access.kcp.io/v1alpha1/selfclusteraccessreviews", "SCAR endpoint URL")
 	token := flag.String("token", "", "Bearer token (required)")
 	output := flag.String("output", "scar.kubeconfig", "Output kubeconfig path")
 	insecure := flag.Bool("insecure", false, "Skip TLS verification for cluster endpoints")
@@ -42,13 +42,6 @@ func main() {
 
 	if *token == "" {
 		log.Fatal("error: -token is required")
-	}
-
-	if *scarURL == "" {
-		*scarURL = os.Getenv("SCAR_URL")
-	}
-	if *scarURL == "" {
-		*scarURL = "http://localhost:9099/services/access-virtual-workspace/apis/access.kcp.io/v1alpha1/selfclusteraccessreviews"
 	}
 
 	clusters, err := callSCAR(*scarURL, *token, *insecure)

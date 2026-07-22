@@ -201,7 +201,13 @@ install-access-vw: build-image ## Build image + deploy access-vw
 # ── MCP server + AI Gateway route ───────────────────────────────────────────
 
 .PHONY: install-mcp
-install-mcp: ## Install MCPRoute pointing to access-vw built-in MCP endpoint
+install-mcp: ## Install MCPRoute (via kcp front-proxy) + Gateway
+	$(call info,Publishing kcp root CA for Envoy backend TLS validation)
+	@$(KC) get secret root-ca -n $(KCP_NS) -o jsonpath='{.data.tls\.crt}' | base64 -d > /tmp/kcp-root-ca.crt; \
+	$(KC) create configmap kcp-root-ca -n $(KCP_NS) \
+		--from-file=ca.crt=/tmp/kcp-root-ca.crt \
+		--dry-run=client -o yaml | $(KC) apply -f -; \
+	rm -f /tmp/kcp-root-ca.crt
 	$(call info,Installing MCP Gateway and Route)
 	@$(KC) apply -k manifests/ai-gateway
 
@@ -249,7 +255,8 @@ seed: ## Create per-user workspaces, APIBinding, RBAC
 	if [ -n "$$TOKEN" ]; then \
 		echo "==> Testing SCAR with alice's OIDC token..."; \
 		curl -sk -X POST -H "Authorization: Bearer $$TOKEN" \
-			"https://root.kcp.example:6443/services/access-virtual-workspace/apis/access.kcp.io/v1alpha1/selfclusteraccessreviews" | jq .; \
+		-H "Content-Type: application/json" -d "{}" \
+			"https://root.kcp.example:6443/services/access/apis/access.kcp.io/v1alpha1/selfclusteraccessreviews" | jq .; \
 	else \
 		echo "⚠️  Could not get OIDC token — skipping SCAR verification"; \
 	fi
@@ -298,4 +305,5 @@ get-token: ## Get OIDC token for USER (default: alice)
 scar: ## Test SCAR for USER (default: alice)
 	@TOKEN=$$(scripts/get-oidc-token.sh $(USER) 2>/dev/null); \
 	curl -sk -X POST -H "Authorization: Bearer $$TOKEN" \
-		"https://root.kcp.example:6443/services/access-virtual-workspace/apis/access.kcp.io/v1alpha1/selfclusteraccessreviews" | jq .
+		-H "Content-Type: application/json" -d "{}" \
+		"https://root.kcp.example:6443/services/access/apis/access.kcp.io/v1alpha1/selfclusteraccessreviews" | jq .
