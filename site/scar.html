@@ -30,20 +30,20 @@
       <h2>Endpoint</h2>
       <div class="example">
         <div class="example-title"><span>HTTP endpoint</span></div>
-        <pre><code>POST /services/access-virtual-workspace/apis/access.kcp.io/v1alpha1/selfclusteraccessreviews</code></pre>
+        <pre><code>POST /services/access/apis/access.kcp.io/v1alpha1/selfclusteraccessreviews</code></pre>
       </div>
     </section>
 
     <section class="section">
       <h2>Request</h2>
-      <p>Callers authenticate with either a bearer token or trusted front-proxy headers.</p>
+      <p>Callers authenticate with a bearer token, a client certificate, or via the front-proxy (which presents its requestheader client certificate before its <code>X-Remote-*</code> headers are trusted).</p>
       <div class="example">
         <div class="example-title"><span>curl examples</span></div>
-        <pre><code># Bearer token path
-curl -k -X POST   -H "Authorization: Bearer $KCP_TOKEN"   https://root.kcp.example:6443/services/access-virtual-workspace/apis/access.kcp.io/v1alpha1/selfclusteraccessreviews
+        <pre><code># Via the kcp front-proxy
+curl -k -X POST   -H "Authorization: Bearer $KCP_TOKEN"   -H "Content-Type: application/json"   -d '{}'   https://root.kcp.example:6443/services/access/apis/access.kcp.io/v1alpha1/selfclusteraccessreviews
 
-# Front-proxy path
-curl -X POST   -H 'X-Remote-User: alice'   -H 'X-Remote-Group: eng'   http://localhost:9099/services/access-virtual-workspace/apis/access.kcp.io/v1alpha1/selfclusteraccessreviews</code></pre>
+# Direct against the virtual workspace (local dev, bearer token)
+curl -k -X POST   -H "Authorization: Bearer $TOKEN"   -H "Content-Type: application/json"   -d '{}'   https://localhost:9443/services/access/apis/access.kcp.io/v1alpha1/selfclusteraccessreviews</code></pre>
       </div>
     </section>
 
@@ -82,9 +82,9 @@ curl -X POST   -H 'X-Remote-User: alice'   -H 'X-Remote-Group: eng'   http://loc
       <h2>Debug endpoint</h2>
       <div class="example">
         <div class="example-title"><span>Graph snapshot</span></div>
-        <pre><code>GET /debug/graph</code></pre>
+        <pre><code>curl -k -H "Authorization: Bearer $TOKEN" https://localhost:9443/debug/graph</code></pre>
       </div>
-      <p>Returns the current in-memory graph snapshot so you can inspect which subjects map to which clusters.</p>
+      <p>Returns the current in-memory graph snapshot so you can inspect which subjects map to which clusters. Served over HTTPS and requires an authenticated user; anonymous requests get <code>403</code>.</p>
     </section>
 
             <nav class="page-nav" aria-label="Pagination"><a href="auth.html">← Authentication flow</a><a href="mcp.html">MCP tool catalog →</a></nav>

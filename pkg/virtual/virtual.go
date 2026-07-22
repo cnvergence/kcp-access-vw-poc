@@ -1,66 +1,87 @@
-// Package virtual provides the shared skeleton for the Access
-// Virtual Workspace — the external service that mounts handlers
-// under /services/access-virtual-workspace/ and answers
-// authenticated queries against the in-memory access graph.
-//
-// VirtualWorkspace holds the shared state (graph, auth resolver,
-// kcp config) and exposes handler registration so each sub-handler
-// (SCAR today, potentially workspace-listing or metrics later) can
-// be plugged in independently.
+// Package virtual provides shared building blocks for the two virtual
+// workspaces served by this binary — the Access VW (SCAR) and the MCP
+// VW — both built on the kcp virtual-workspace-framework and served
+// behind kcp's front-proxy.
 //
 // # Architecture
 //
-// The VW is NOT backed by multicluster-runtime for request serving.
-// The HTTP path is plain net/http: authenticate caller → read graph
-// → return JSON. Only the controller side (pkg/rbacprovider) uses
-// MCR to drive the graph from RBAC events across shards.
+// The binary runs a virtual-workspace root apiserver (k8s.io/apiserver
+// based, via github.com/kcp-dev/virtual-workspace-framework). The root
+// handler chain authenticates every request (front-proxy requestheader
+// client certificates, bearer-token TokenReview against kcp, or client
+// certs — standard delegated authentication), resolves the URL path to
+// one of the registered virtual workspaces, strips the VW prefix, and
+// delegates:
 //
-// Authentication follows the kedge pattern:
-//   - Bearer tokens are resolved via kcp's TokenReview API.
-//   - Client certificates are verified against a CA bundle.
-//   - FrontProxy X-Remote-* headers are accepted as a dev-only fallback.
+//   - /services/access → fixed-group-version apiserver serving
+//     apis/access.kcp.io/v1alpha1/selfclusteraccessreviews
+//   - /services/mcp    → raw HTTP handler serving MCP over
+//     streamable HTTP
 //
-// All three are plugged into a ChainResolver; the SCAR handler
-// calls Resolve once per request.
+// Authorization is per-VW: both workspaces allow any authenticated,
+// non-anonymous user, because SCAR is a self-review and the MCP tools
+// scope themselves to the caller's authorized workspaces via the
+// access graph (and kcp re-authorizes every per-workspace call).
+//
+// Only the controller side (pkg/rbacprovider) uses multicluster-runtime,
+// to drive the graph from RBAC events across shards. The serving side is
+// pure apiserver machinery.
 package virtual
 
 import (
-	"net/http"
+	"context"
 
-	"github.com/cnvergence/kcp-access-vw/pkg/graph"
-	"github.com/cnvergence/kcp-access-vw/pkg/virtual/auth"
+	"k8s.io/apiserver/pkg/admission"
+	"k8s.io/apiserver/pkg/authentication/user"
+	"k8s.io/apiserver/pkg/authorization/authorizer"
+	genericapiserver "k8s.io/apiserver/pkg/server"
+
+	"github.com/kcp-dev/virtual-workspace-framework/framework"
 )
 
-// VirtualWorkspace holds shared state for the Access Virtual
-// Workspace's HTTP handlers.
-type VirtualWorkspace struct {
-	// Graph is the in-memory access graph populated by providers.
-	Graph *graph.Graph
-
-	// Auth resolves caller identity from incoming requests.
-	Auth auth.Resolver
+// AuthenticatedOnlyAuthorizer allows any authenticated, non-anonymous
+// user and denies everyone else. Both VWs use it: SCAR is a
+// self-review (the caller asks about themselves), and MCP tool calls
+// are scoped by the access graph and re-authorized by kcp on every
+// per-workspace request.
+func AuthenticatedOnlyAuthorizer() authorizer.Authorizer {
+	return authorizer.AuthorizerFunc(func(_ context.Context, attrs authorizer.Attributes) (authorizer.Decision, string, error) {
+		u := attrs.GetUser()
+		if u == nil || u.GetName() == "" || u.GetName() == user.Anonymous {
+			return authorizer.DecisionDeny, "authentication required", nil
+		}
+		return authorizer.DecisionAllow, "available to any authenticated user", nil
+	})
 }
 
-// New returns a VirtualWorkspace with the supplied graph and resolver.
-func New(g *graph.Graph, resolver auth.Resolver) *VirtualWorkspace {
-	return &VirtualWorkspace{
-		Graph: g,
-		Auth:  resolver,
-	}
+// CoreVirtualWorkspace is framework.VirtualWorkspace minus the
+// admission interfaces — the part that concrete VW implementations
+// like fixedgvs actually provide.
+type CoreVirtualWorkspace interface {
+	authorizer.Authorizer
+	framework.RootPathResolver
+	framework.ReadyChecker
+	Register(name string, rootAPIServerConfig genericapiserver.CompletedConfig, delegateAPIServer genericapiserver.DelegationTarget) (genericapiserver.DelegationTarget, error)
 }
 
-// RegisterHandlers wires all VW sub-handlers onto the supplied mux.
-// Today this is just SCAR; future handlers (workspace listing, etc.)
-// are added here.
+// WithoutAdmission adds no-op Admit/Validate to a CoreVirtualWorkspace
+// so it satisfies framework.VirtualWorkspace. Neither VW here uses
+// admission: SCAR persists nothing, and the MCP VW is a raw handler.
 //
-// Callers import and call the sub-packages' registration functions
-// directly (e.g. scar.Register(mux, vw)) rather than going through
-// this method, because each sub-package may have its own
-// configuration. This method exists as a convenience for the common
-// "register everything with defaults" path.
-func (vw *VirtualWorkspace) RegisterHandlers(mux *http.ServeMux) {
-	// Sub-packages register themselves; see pkg/virtual/scar.Register.
-	// This method is a placeholder for the "register all with defaults"
-	// convenience pattern that will make more sense once there are ≥2
-	// sub-handlers.
+// TODO: if SCAR ever grows persisted (writable) state, replace this
+// with real admission — at minimum validation of the incoming object.
+type WithoutAdmission struct {
+	CoreVirtualWorkspace
+}
+
+var _ framework.VirtualWorkspace = &WithoutAdmission{}
+
+// Admit is a no-op.
+func (w *WithoutAdmission) Admit(_ context.Context, _ admission.Attributes, _ admission.ObjectInterfaces) error {
+	return nil
+}
+
+// Validate is a no-op.
+func (w *WithoutAdmission) Validate(_ context.Context, _ admission.Attributes, _ admission.ObjectInterfaces) error {
+	return nil
 }

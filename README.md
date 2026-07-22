@@ -25,9 +25,9 @@ Permission-aware workspace discovery for [kcp](https://www.kcp.io/). Implements 
 
 1. **Indexing:** The server watches `ClusterRoleBindings` and `RoleBindings` across every kcp workspace that has bound the `access.kcp.io` APIExport. These bindings are translated into an in-memory permission graph mapping subjects (users, groups, service accounts) to logical clusters.
 
-2. **Querying (SCAR):** A caller POSTs to the SCAR endpoint with a bearer token (or trusted headers behind a front-proxy). The server resolves the caller's identity and returns the list of `(clusterName, endpoint)` pairs the caller can access.
+2. **Querying (SCAR):** A caller POSTs to the SCAR endpoint with a bearer token (or, behind kcp's front-proxy, identity forwarded via requestheader mTLS). The apiserver's authentication layer resolves the caller's identity and the server returns the list of `(clusterName, endpoint)` pairs the caller can access.
 
-3. **MCP tools:** The built-in MCP server authenticates each request via TokenReview against kcp, queries the same in-process permission graph, and exposes Kubernetes + kcp tools scoped to only the caller's authorized workspaces. Tools include `list_resources`, `get_resource`, `create_resource`, `update_resource`, `delete_resource`, and kcp-specific `list_kcp_workspaces` / `create_kcp_workspace`.
+3. **MCP tools:** The built-in MCP server takes the caller identity resolved by the same authentication layer, queries the same in-process permission graph, and exposes Kubernetes + kcp tools scoped to only the caller's authorized workspaces. Per-workspace calls impersonate the caller using the server's own kcp identity. Tools include `list_resources`, `get_resource`, `create_resource`, `update_resource`, `delete_resource`, and kcp-specific `list_kcp_workspaces` / `create_kcp_workspace`.
 
 4. **Consuming (SCAR):** The SCAR response can also feed into any client that understands kubeconfig — a CLI, a dashboard, etc. The included `scar-to-kubeconfig` tool converts SCAR output into a scoped kubeconfig directly.
 
@@ -35,14 +35,15 @@ Permission-aware workspace discovery for [kcp](https://www.kcp.io/). Implements 
 
 | Path | Description |
 |------|-------------|
-| `cmd/server` | Main binary. Runs the RBAC indexer + SCAR + MCP HTTP endpoints. |
+| `cmd/server` | Main binary. Runs the RBAC indexer + the virtual-workspace root apiserver. |
 | `cmd/scar-to-kubeconfig` | Helper that calls SCAR and writes a scoped kubeconfig. |
+| `pkg/server` | Options + wiring: root apiserver, delegated authentication, per-VW authorization. |
 | `pkg/graph` | In-memory permission graph. No kcp imports — cleanly extractable. |
 | `pkg/rbacprovider` | Watches CRBs/RBs via multicluster-runtime, translates into graph grants. |
-| `pkg/virtual/mcp` | Built-in MCP server. Authenticates via TokenReview, scopes tools to caller's workspaces. |
+| `pkg/virtual/mcp` | MCP virtual workspace (`/services/mcp`). Scopes tools to the authenticated caller's workspaces; per-workspace calls use impersonation. |
 | `pkg/virtual/mcp/tools` | MCP tool handlers: generic K8s resources + kcp-specific (workspaces). |
-| `pkg/virtual/scar` | SCAR HTTP handler. Reads from the graph. |
-| `pkg/virtual/auth` | Auth resolver chain: bearer token (TokenReview), client cert, trusted headers. |
+| `pkg/virtual/scar` | Access virtual workspace (`/services/access`): create-only REST storage for SelfClusterAccessReview. Reads from the graph. |
+| `pkg/generated/openapi` | Generated OpenAPI definitions for the access API (openapi-gen). |
 | `pkg/apis/access/v1alpha1` | `SelfClusterAccessReview` API types. |
 | `config/apiexport` | kcp APIExport + APIResourceSchema manifests for `access.kcp.io`. |
 | `config/deployment` | Kubernetes Deployment manifest for the controller. |
@@ -80,7 +81,7 @@ make install-apiexport
 make create-test-workspaces
 make seed-rbac
 
-# 4. Start the server (trusted headers mode)
+# 4. Start the server (TLS on :9443, bearer tokens via TokenReview)
 make run-access-vw
 
 
@@ -112,12 +113,13 @@ See [`docs/kind-testing.md`](docs/kind-testing.md) for the full walkthrough and 
 Proves end-to-end that an MCP client sees only the workspaces SCAR authorizes, using host-local `kcp start` (no Kind):
 
 ```sh
-# 1. Start with bearer-token auth (no trusted headers)
-make run-access-vw-tokenauth
+# 1. Start the server (bearer tokens validated via TokenReview)
+make run-access-vw
 
 # 2. Connect your MCP client directly to the built-in MCP endpoint
 #    Add to your MCP client config:
-#    { "mcpServers": { "kcp": { "type": "http", "url": "http://localhost:9099/services/access-virtual-workspace/mcp" } } }
+#    { "mcpServers": { "kcp": { "type": "http", "url": "https://localhost:9443/services/mcp" } } }
+#    (dev serving cert is self-signed — the client must skip TLS verification)
 ```
 
 Alternatively, use `scar-to-kubeconfig` to generate a scoped kubeconfig and feed it to the upstream `kubernetes-mcp-server`:
@@ -138,9 +140,9 @@ make kind-teardown   # deletes the Kind cluster
 
 ## SCAR API
 
-**Endpoint:** `POST /services/access-virtual-workspace/apis/access.kcp.io/v1alpha1/selfclusteraccessreviews`
+**Endpoint:** `POST /services/access/apis/access.kcp.io/v1alpha1/selfclusteraccessreviews`
 
-**Request:** Bearer token in `Authorization` header, or `X-Remote-User` / `X-Remote-Group` headers when behind a front-proxy.
+**Request:** Bearer token in `Authorization` header (validated via TokenReview against kcp), or — behind kcp's front-proxy — identity forwarded as `X-Remote-*` headers over requestheader mTLS.
 
 **Response:**
 
@@ -162,16 +164,16 @@ make kind-teardown   # deletes the Kind cluster
 ## Debug endpoint
 
 ```sh
-curl -s http://localhost:9099/debug/graph | jq
+curl -ks -H "Authorization: Bearer $TOKEN" https://localhost:9443/debug/graph | jq
 ```
 
-Returns the current graph state: all subjects and their cluster mappings.
+Returns the current graph state: all subjects and their cluster mappings. Requires an authenticated caller (any authenticated user).
 
 ## MCP endpoint
 
-**Endpoint:** `POST /services/access-virtual-workspace/mcp`
+**Endpoint:** `POST /services/mcp`
 
-The built-in MCP server uses [streamable HTTP](https://modelcontextprotocol.io/specification/2025-03-26/basic/transports#streamable-http) transport (stateless mode). Each request authenticates via TokenReview, queries the permission graph, and returns tools scoped to the caller's workspaces.
+The built-in MCP server uses [streamable HTTP](https://modelcontextprotocol.io/specification/2025-03-26/basic/transports#streamable-http) transport (stateless mode). Each request takes the identity resolved by the apiserver authentication layer, queries the permission graph, and returns tools scoped to the caller's workspaces. Per-workspace tool calls impersonate the caller via the server's own kcp identity (which needs RBAC permission to impersonate users, groups, and userextras).
 
 **Available tools:**
 
@@ -187,22 +189,22 @@ The built-in MCP server uses [streamable HTTP](https://modelcontextprotocol.io/s
 
 ## Architecture
 
-The server supports two run modes:
+The serving side is a **virtual-workspace root apiserver** ([kcp virtual-workspace-framework](https://github.com/kcp-dev/virtual-workspace-framework)) that serves TLS only (`--secure-port`, default 9443; self-signs a dev cert if none given) and hosts two virtual workspaces:
 
-- **Multi-shard** (`-kubeconfig` + `-apiexport-endpointslice`): Production mode. Uses the kcp apiexport provider via multicluster-runtime to watch RBAC bindings across all workspaces bound to the `access.kcp.io` APIExport. Only workspaces with an APIBinding for `access.kcp.io` are indexed — this is the opt-in design.
-- **Single-shard** (`-kubeconfig` only): Development mode. Standard client-go informers against one cluster.
+- **`access`** at `/services/access` — SCAR as a real create-only REST resource (modelled on `SelfSubjectAccessReview`), with kube codecs, content negotiation, and discovery.
+- **`mcp`** at `/services/mcp` — the streamable-HTTP MCP handler as a raw-handler VW behind the same filter chain.
 
-Authentication chain (in order):
-1. **Bearer token** — validated via `TokenReview` against kcp
-2. **Client certificate** — validated against a CA pool (if configured)
-3. **Trusted headers** — `X-Remote-User` / `X-Remote-Group` (only when `-trust-headers` is set, behind a front-proxy)
+The RBAC indexer supports two run modes:
 
-The `-trust-headers` flag exists because access-vw serves two traffic paths:
+- **Multi-shard** (`--kubeconfig` + `--apiexport-endpointslice`): Production mode. Uses the kcp apiexport provider via multicluster-runtime to watch RBAC bindings across all workspaces bound to the `access.kcp.io` APIExport. Only workspaces with an APIBinding for `access.kcp.io` are indexed — this is the opt-in design.
+- **Single-shard** (`--kubeconfig` only): Development mode. Standard client-go informers against one cluster.
 
-- **SCAR via front-proxy** — kcp's front-proxy authenticates the user and sets `X-Remote-User` / `X-Remote-Group` headers. access-vw trusts these headers without re-validating.
-- **MCP via AI Gateway** — the Envoy AI Gateway forwards the raw `Authorization: Bearer` token. access-vw validates it via `TokenReview` against kcp.
+Authentication is standard Kubernetes delegated authentication (`DelegatingAuthenticationOptions`):
+1. **Front-proxy requestheader mTLS** — `X-Remote-User` / `X-Remote-Group` / `X-Remote-Extra-*` headers are trusted only from clients presenting a certificate signed by `--requestheader-client-ca-file` (optionally restricted with `--requestheader-allowed-names`). This is how kcp's front-proxy forwards identity.
+2. **Bearer token** — validated via `TokenReview` against kcp (`--authentication-kubeconfig`, defaults to `--kubeconfig`).
+3. **Client certificate** — validated against `--client-ca-file`.
 
-> **Security note:** Trusting `X-Remote-User` headers is only safe when access-vw is not directly reachable by end users. In the current deployment, this is ensured by Kubernetes network policy (only front-proxy can reach the SCAR endpoint). For production hardening, consider replacing `-trust-headers` with client certificate verification (`-requestheader-client-ca-file`), which validates that the caller presenting `X-Remote-` headers holds a certificate signed by a trusted CA — the same pattern used by the Kubernetes API server aggregation layer.
+> **Security note:** There is no unauthenticated header-trust mode. Header trust is gated on requestheader client-certificate mTLS — the same pattern the Kubernetes API server aggregation layer uses. Behind the front-proxy the caller's original bearer token never reaches access-vw, so per-workspace MCP calls **impersonate** the caller (`Impersonate-User` / `Impersonate-Group`) using the server's own kubeconfig identity; kcp re-authorizes every impersonated request and audit logs record both identities.
 
 ## Deployment
 

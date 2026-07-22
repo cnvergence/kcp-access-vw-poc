@@ -13,5 +13,6 @@
 // APIServer plumbing lands.
 //
 // +kubebuilder:object:generate=true
+// +k8s:openapi-gen=true
 // +groupName=access.kcp.io
 package v1alpha1

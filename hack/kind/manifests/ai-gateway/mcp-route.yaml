@@ -1,13 +1,10 @@
 # MCPRoute for Envoy AI Gateway.
-# Routes MCP traffic to access-vw MCP endpoint with Keycloak OAuth.
-#
-# NOTE: In the ADR 007 target design, this route would go through kcp
-# front-proxy (frontproxy-front-proxy:6443) instead of directly to
-# access-vw. Front-proxy strips the Authorization header after OIDC
-# validation, but the MCP handler needs the bearer token for downstream
-# K8s API calls. Moving to front-proxy routing requires switching to
-# impersonation (Impersonate-User headers) for downstream calls.
-# See site/architecture.html "POC vs ADR target design" for details.
+# Routes MCP traffic through the kcp front-proxy (the ADR 007 target
+# design): the front-proxy validates the forwarded OIDC bearer token,
+# resolves the identity, and forwards it to access-vw as X-Remote-*
+# headers over requestheader mTLS. Per-workspace calls from the MCP
+# tools use impersonation, so the original token is not needed past
+# the front-proxy.
 ---
 apiVersion: aigateway.envoyproxy.io/v1beta1
 kind: MCPRoute
@@ -34,12 +31,31 @@ spec:
           - profile
           - email
   backendRefs:
-    - name: access-vw
+    - name: frontproxy-front-proxy
       kind: Service
-      port: 9099
-      path: /services/access-virtual-workspace/mcp
+      port: 6443
+      path: /services/mcp
       forwardHeaders:
         - name: Authorization
+---
+# TLS origination for the Envoy → front-proxy hop, verified against the
+# kcp root CA (published to the kcp-root-ca ConfigMap by the Makefile).
+apiVersion: gateway.networking.k8s.io/v1alpha3
+kind: BackendTLSPolicy
+metadata:
+  name: frontproxy-tls
+  namespace: kcp-system
+spec:
+  targetRefs:
+    - group: ""
+      kind: Service
+      name: frontproxy-front-proxy
+  validation:
+    caCertificateRefs:
+      - group: ""
+        kind: ConfigMap
+        name: kcp-root-ca
+    hostname: frontproxy-front-proxy.kcp-system.svc.cluster.local
 ---
 # Gateway for MCP traffic
 apiVersion: gateway.networking.k8s.io/v1

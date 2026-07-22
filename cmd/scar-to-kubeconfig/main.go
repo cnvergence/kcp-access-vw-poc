@@ -18,10 +18,11 @@ import (
 	"log"
 	"net/http"
 	"os"
+	"strings"
 	"time"
 
-	clientcmdapi "k8s.io/client-go/tools/clientcmd/api"
 	"k8s.io/client-go/tools/clientcmd"
+	clientcmdapi "k8s.io/client-go/tools/clientcmd/api"
 )
 
 type scarResponse struct {
@@ -34,7 +35,7 @@ type scarResponse struct {
 }
 
 func main() {
-	scarURL := flag.String("scar-url", "", "SCAR endpoint URL (or set SCAR_URL env)")
+	scarURL := flag.String("scar-url", "https://localhost:9443/services/access/apis/access.kcp.io/v1alpha1/selfclusteraccessreviews", "SCAR endpoint URL")
 	token := flag.String("token", "", "Bearer token (required)")
 	output := flag.String("output", "scar.kubeconfig", "Output kubeconfig path")
 	insecure := flag.Bool("insecure", false, "Skip TLS verification for cluster endpoints")
@@ -42,13 +43,6 @@ func main() {
 
 	if *token == "" {
 		log.Fatal("error: -token is required")
-	}
-
-	if *scarURL == "" {
-		*scarURL = os.Getenv("SCAR_URL")
-	}
-	if *scarURL == "" {
-		*scarURL = "http://localhost:9099/services/access-virtual-workspace/apis/access.kcp.io/v1alpha1/selfclusteraccessreviews"
 	}
 
 	clusters, err := callSCAR(*scarURL, *token, *insecure)
@@ -82,11 +76,12 @@ func callSCAR(scarURL, token string, insecure bool) ([]scarCluster, error) {
 		}
 	}
 
-	req, err := http.NewRequest(http.MethodPost, scarURL, nil)
+	req, err := http.NewRequest(http.MethodPost, scarURL, strings.NewReader("{}"))
 	if err != nil {
 		return nil, fmt.Errorf("create request: %w", err)
 	}
 	req.Header.Set("Authorization", "Bearer "+token)
+	req.Header.Set("Content-Type", "application/json")
 
 	resp, err := client.Do(req)
 	if err != nil {
@@ -99,7 +94,9 @@ func callSCAR(scarURL, token string, insecure bool) ([]scarCluster, error) {
 		return nil, fmt.Errorf("read response: %w", err)
 	}
 
-	if resp.StatusCode != http.StatusOK {
+	// The apiserver create endpoint returns 201 Created; older raw
+	// handlers returned 200. Accept both.
+	if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusCreated {
 		return nil, fmt.Errorf("SCAR returned %d: %s", resp.StatusCode, string(body))
 	}
 

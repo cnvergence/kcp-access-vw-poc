@@ -30,8 +30,17 @@ spec:
         name: keycloak-ca
         key: ca.crt
   additionalPathMappings:
-    - path: /services/access-virtual-workspace
-      backend: http://access-vw.kcp-system.svc.cluster.local:9099
+    # Both VWs served by the access-vw root apiserver (TLS, port 9443).
+    # The front-proxy authenticates the caller (OIDC, client certs) and
+    # forwards identity via X-Remote-* headers, authenticating itself to
+    # the VW with its requestheader client cert.
+    - path: /services/access
+      backend: https://access-vw.kcp-system.svc.cluster.local:9443
+      backend_server_ca: /etc/kcp/tls/ca/tls.crt
+      proxy_client_cert: /etc/kcp-front-proxy/requestheader-client/tls.crt
+      proxy_client_key: /etc/kcp-front-proxy/requestheader-client/tls.key
+    - path: /services/mcp
+      backend: https://access-vw.kcp-system.svc.cluster.local:9443
       backend_server_ca: /etc/kcp/tls/ca/tls.crt
       proxy_client_cert: /etc/kcp-front-proxy/requestheader-client/tls.crt
       proxy_client_key: /etc/kcp-front-proxy/requestheader-client/tls.key

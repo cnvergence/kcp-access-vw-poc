@@ -42,12 +42,12 @@ You should see one `APIExport` named `access.kcp.io`, one `APIResourceSchema`, a
 make run-access-vw
 ```
 
-This runs in multi-shard mode with `-trust-headers` enabled so curl can authenticate by setting `X-Remote-User` / `X-Remote-Group` headers. Leave this terminal running.
+This runs in multi-shard mode, serving TLS on `:9443` with a self-signed dev cert. Callers authenticate with bearer tokens, which the server validates via TokenReview against kcp. Leave this terminal running.
 
 You should see, in order:
 
 1. `rbacprovider running multi-shard ...`
-2. `access-vw listening on :9099`
+2. `Serving securely on [::]:9443`
 3. Controller-runtime startup messages.
 4. `access graph marked ready (multicluster manager started)`
 
@@ -57,14 +57,14 @@ At this point the graph is ready but empty. `/healthz` returns 200:
 make healthz
 ```
 
-And SCAR returns an empty result for any caller:
+And SCAR returns an empty result for any caller (`make scar` uses the kcp-admin token from your kcp admin kubeconfig by default):
 
 ```sh
-make scar-alice
+make scar
 # {"kind": "SelfClusterAccessReview", ..., "status": {"clusters": []}}
 ```
 
-> **⚠ Header trust:** `-trust-headers` is only safe when nothing untrusted can reach `:9099`. Don't expose this port without a front-proxy or real auth layer in front.
+> **Note:** There is no header-trust mode anymore. `X-Remote-*` identity headers are only accepted over mTLS from a client certificate signed by `--requestheader-client-ca-file` (the front-proxy pattern); for local testing you authenticate with tokens.
 
 ## 3. Create test workspaces and bind them
 
@@ -90,28 +90,31 @@ This creates:
 
 Each SA only has access to its own workspace. The access-vw logs will show reconcile events as each CRB is created.
 
-## 5. Query SCAR (trusted headers mode)
+## 5. Query SCAR
 
-If running with `make run-access-vw` (trusted headers), you can use X-Remote-User to test:
+Identity comes from the bearer token. Test with the seeded ServiceAccounts — each should see only its own workspace:
 
 ```sh
-make scar-alice     # user alice → has a CRB via alice-sa's workspace
-make scar-eng       # group eng
+# alice-sa → workspace-alice
+kubectl ws use ':root:workspace-alice'
+TOKEN=$(kubectl create token alice-sa --namespace=default --duration=1h)
+kubectl ws use ':root'
+make scar TOKEN=$TOKEN
 ```
 
-A user with no matching binding returns an empty `clusters` array:
+A caller with no matching binding (e.g. the kcp-admin default) returns an empty `clusters` array:
 
 ```sh
-curl -sf -X POST -H 'X-Remote-User: nobody' \
-  http://localhost:9099/services/access-virtual-workspace/apis/access.kcp.io/v1alpha1/selfclusteraccessreviews | jq
+make scar
 ```
 
 ### Debug endpoint
 
-Check the current graph state:
+Check the current graph state (any authenticated caller):
 
 ```sh
-curl -s http://localhost:9099/debug/graph | jq
+make debug-graph
+# or: curl -ks -H "Authorization: Bearer $TOKEN" https://localhost:9443/debug/graph | jq
 ```
 
 Returns subjects (with their cluster mappings) and clusters (with their endpoints).
@@ -146,25 +149,20 @@ make test
 make vet
 ```
 
-## Bearer-token auth
+## Raw curl
 
-To exercise the `TokenReviewResolver` path instead of trusted headers:
-
-```sh
-make run-access-vw-tokenauth
-```
-
-Then POST with `Authorization: Bearer <token>`:
+The equivalent of `make scar` without the Makefile:
 
 ```sh
 TOKEN=$(kubectl create token test-sa --namespace=default --duration=1h)
 
-curl -sf -X POST \
+curl -ksf -X POST \
   -H "Authorization: Bearer $TOKEN" \
-  http://localhost:9099/services/access-virtual-workspace/apis/access.kcp.io/v1alpha1/selfclusteraccessreviews | jq
+  -H "Content-Type: application/json" -d '{}' \
+  https://localhost:9443/services/access/apis/access.kcp.io/v1alpha1/selfclusteraccessreviews | jq
 ```
 
-> **Note:** The `scar-alice` / `scar-eng` smoke targets use `X-Remote-User` headers and only work with `make run-access-vw` (trusted headers mode).
+(`-k` because the dev serving cert is self-signed.)
 
 ## MCP demo — AI agent with scoped access
 
@@ -174,10 +172,10 @@ This proves SCAR's output is consumable by a real MCP server end-to-end. A scope
 
 ### Step-by-step
 
-**1. Start the Access VW with bearer-token auth:**
+**1. Start the Access VW:**
 
 ```sh
-make run-access-vw-tokenauth
+make run-access-vw
 ```
 
 **2. Generate the scoped kubeconfig:**
@@ -267,15 +265,17 @@ You can also verify the raw SCAR responses without the MCP server:
 # alice-sa → returns workspace-alice endpoint
 kubectl ws use root/workspace-alice
 TOKEN=$(kubectl create token alice-sa --namespace=default --duration=1h)
-curl -sf -X POST -H "Authorization: Bearer $TOKEN" \
-  http://localhost:9099/services/access-virtual-workspace/apis/access.kcp.io/v1alpha1/selfclusteraccessreviews | jq
+curl -ksf -X POST -H "Authorization: Bearer $TOKEN" \
+  -H "Content-Type: application/json" -d '{}' \
+  https://localhost:9443/services/access/apis/access.kcp.io/v1alpha1/selfclusteraccessreviews | jq
 # → {"status": {"clusters": [{"clusterName": "...", "endpoint": "..."}]}}
 
 # bob-sa → returns workspace-bob endpoint (different cluster)
 kubectl ws use root/workspace-bob
 TOKEN=$(kubectl create token bob-sa --namespace=default --duration=1h)
-curl -sf -X POST -H "Authorization: Bearer $TOKEN" \
-  http://localhost:9099/services/access-virtual-workspace/apis/access.kcp.io/v1alpha1/selfclusteraccessreviews | jq
+curl -ksf -X POST -H "Authorization: Bearer $TOKEN" \
+  -H "Content-Type: application/json" -d '{}' \
+  https://localhost:9443/services/access/apis/access.kcp.io/v1alpha1/selfclusteraccessreviews | jq
 # → {"status": {"clusters": [{"clusterName": "...", "endpoint": "..."}]}}
 # (different clusterName than alice!)
 ```

@@ -2,8 +2,8 @@ package mcp
 
 import (
 	"fmt"
-	"net/http"
 
+	"k8s.io/apiserver/pkg/authentication/user"
 	"k8s.io/client-go/dynamic"
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/rest"
@@ -12,59 +12,50 @@ import (
 	"github.com/cnvergence/kcp-access-vw/pkg/virtual/mcp/tools"
 )
 
-// ClientFactory owns the shared HTTP transport and produces K8s clients
-// that differ only in bearer token and target endpoint. Constructed once
-// at server start to amortize TLS handshake cost across all requests.
+// ClientFactory produces per-workspace Kubernetes clients that act on
+// behalf of the authenticated caller via user impersonation.
+//
+// Behind kcp's front-proxy the caller's original bearer token never
+// reaches the VW — the front-proxy consumes it and forwards identity
+// as X-Remote-* headers. So per-workspace calls use the VW's own
+// service identity (from its kubeconfig) with Impersonate-User /
+// Impersonate-Group headers carrying the caller. kcp authorizes each
+// request as the impersonated user, and audit logs record both
+// identities.
+//
+// The VW's identity therefore needs RBAC permission to impersonate
+// users, groups, and userextras in the target kcp.
 type ClientFactory struct {
 	base *rest.Config
-	rt   http.RoundTripper
 }
 
-// NewClientFactory creates a ClientFactory from the access-vw's kubeconfig.
-// The resulting factory reuses the TLS configuration and connection pool
-// across all clients it produces.
+// NewClientFactory creates a ClientFactory from the access-vw's own
+// kubeconfig. Transport-level settings (TLS, timeouts) are inherited
+// from that config; client-go's transport cache reuses connections
+// across clients that share them.
 func NewClientFactory(baseConfig *rest.Config) (*ClientFactory, error) {
 	if baseConfig == nil {
 		return nil, fmt.Errorf("base config cannot be nil")
 	}
-
-	base := rest.CopyConfig(baseConfig)
-
-	rt, err := rest.TransportFor(base)
-	if err != nil {
-		return nil, fmt.Errorf("creating transport: %w", err)
-	}
-
-	return &ClientFactory{
-		base: base,
-		rt:   rt,
-	}, nil
+	return &ClientFactory{base: rest.CopyConfig(baseConfig)}, nil
 }
 
-// NewClientFactoryFromHost creates a ClientFactory from a bare host URL.
-// Useful for tests where no real cluster connection is needed.
-func NewClientFactoryFromHost(host string) (*ClientFactory, error) {
-	return NewClientFactory(&rest.Config{
-		Host: host,
-		TLSClientConfig: rest.TLSClientConfig{
-			Insecure: true,
-		},
-	})
-}
-
-// Clients returns typed and dynamic clients for the given workspace endpoint,
-// using the caller's bearer token for authentication.
-func (f *ClientFactory) Clients(endpoint, token string) (kubernetes.Interface, dynamic.Interface, error) {
+// Clients returns typed and dynamic clients for the given workspace
+// endpoint, impersonating the supplied user.
+func (f *ClientFactory) Clients(endpoint string, u user.Info) (kubernetes.Interface, dynamic.Interface, error) {
 	if endpoint == "" {
 		return nil, nil, fmt.Errorf("endpoint cannot be empty")
 	}
-	if token == "" {
-		return nil, nil, fmt.Errorf("token cannot be empty")
+	if u == nil || u.GetName() == "" {
+		return nil, nil, fmt.Errorf("user cannot be empty")
 	}
 
-	cfg := &rest.Config{
-		Host:      endpoint,
-		Transport: &tokenRoundTripper{base: f.rt, token: token},
+	cfg := rest.CopyConfig(f.base)
+	cfg.Host = endpoint
+	cfg.Impersonate = rest.ImpersonationConfig{
+		UserName: u.GetName(),
+		Groups:   u.GetGroups(),
+		Extra:    u.GetExtra(),
 	}
 
 	typedClient, err := kubernetes.NewForConfig(cfg)
@@ -80,27 +71,19 @@ func (f *ClientFactory) Clients(endpoint, token string) (kubernetes.Interface, d
 	return typedClient, dynClient, nil
 }
 
-// tokenRoundTripper wraps an http.RoundTripper to inject a bearer token.
-type tokenRoundTripper struct {
-	base  http.RoundTripper
-	token string
-}
-
-func (t *tokenRoundTripper) RoundTrip(req *http.Request) (*http.Response, error) {
-	// Clone the request to avoid mutating the original
-	req2 := req.Clone(req.Context())
-	req2.Header.Set("Authorization", "Bearer "+t.token)
-	return t.base.RoundTrip(req2)
-}
-
-// WorkspaceScope holds per-request authorization context. Built fresh for
-// each MCP request from the caller's identity and the access graph state.
+// WorkspaceScope holds per-request authorization context. Built fresh
+// for each MCP request from the caller's identity (resolved by the
+// apiserver authentication filter) and the access graph state.
 type WorkspaceScope struct {
-	User        string
-	Groups      []string
-	Token       string
+	// User is the authenticated caller. Per-workspace clients
+	// impersonate this identity.
+	User user.Info
+
+	// ClusterList is the set of workspaces the caller may access,
+	// as answered by the access graph.
 	ClusterList []graph.AccessEndpointSlice
-	factory     *ClientFactory
+
+	factory *ClientFactory
 }
 
 // Names returns the list of workspace IDs the caller has access to.
@@ -122,8 +105,9 @@ func (s *WorkspaceScope) HasAccess(workspace string) bool {
 	return false
 }
 
-// ClientFor returns K8s clients for the given workspace. Returns an error
-// if the workspace is not in scope or client creation fails.
+// ClientFor returns K8s clients for the given workspace, impersonating
+// the scope's user. Returns an error if the workspace is not in scope
+// or client creation fails.
 func (s *WorkspaceScope) ClientFor(workspace string) (kubernetes.Interface, dynamic.Interface, error) {
 	var endpoint string
 	for _, c := range s.ClusterList {
@@ -137,7 +121,7 @@ func (s *WorkspaceScope) ClientFor(workspace string) (kubernetes.Interface, dyna
 		return nil, nil, fmt.Errorf("workspace %q not in scope (available: %v)", workspace, s.Names())
 	}
 
-	return s.factory.Clients(endpoint, s.Token)
+	return s.factory.Clients(endpoint, s.User)
 }
 
 // Clusters returns cluster info for the tools package.

@@ -1,92 +1,73 @@
-// Package mcp implements the MCP Virtual Workspace HTTP endpoint.
+// Package mcp implements the MCP Virtual Workspace.
 //
-// The handler serves the Model Context Protocol (MCP) over streamable HTTP,
-// authenticating callers via the virtual workspace's auth.Resolver, building
-// a per-request WorkspaceScope from the shared access graph, and exposing
-// tools scoped to the caller's authorized workspaces.
+// The handler serves the Model Context Protocol (MCP) over streamable
+// HTTP. Authentication has already happened by the time a request gets
+// here — the virtual-workspace root apiserver's filter chain resolves
+// the caller (front-proxy requestheader certs, bearer-token TokenReview,
+// or client certs) and stores the identity in the request context. The
+// handler builds a per-request WorkspaceScope from the shared access
+// graph and exposes tools scoped to the caller's authorized workspaces.
 //
-// Like the SCAR handler, this is intentionally thin: no authorization
-// decisions (those happened in the graph populator), no caching, no batching.
+// Like the SCAR storage, this is intentionally thin: no authorization
+// decisions (the graph populator made those observable, and kcp
+// re-authorizes every per-workspace call), no caching, no batching.
 // The graph is the seam; the handler projects it into MCP.
 package mcp
 
 import (
 	"context"
 	"fmt"
-	"log"
 	"net/http"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
+	genericapirequest "k8s.io/apiserver/pkg/endpoints/request"
+	"k8s.io/klog/v2"
 
 	"github.com/cnvergence/kcp-access-vw/pkg/graph"
-	"github.com/cnvergence/kcp-access-vw/pkg/virtual/auth"
 )
 
-// Path is the canonical URL path the handler is registered at when
-// served behind kcp's FrontProxy.
-const Path = "/services/access-virtual-workspace/mcp"
-
-// Options configures the MCP handler.
-type Options struct {
-	// ClientFactory produces K8s clients. Shared across all requests to
-	// reuse TLS connections.
-	ClientFactory *ClientFactory
-}
-
-// Register mounts the MCP handler on the supplied mux using the
-// canonical Path. The handler is stateless: each request re-authenticates
-// and rebuilds the WorkspaceScope.
-func Register(mux *http.ServeMux, g *graph.Graph, resolver auth.Resolver, opts *Options) {
-	if opts == nil {
-		opts = &Options{}
-	}
-	if opts.ClientFactory == nil {
-		panic("MCP handler requires ClientFactory")
+// NewHandler returns the streamable-HTTP MCP handler. The handler is
+// stateless: each request rebuilds the WorkspaceScope from the identity
+// in the request context and the current graph state.
+func NewHandler(g *graph.Graph, factory *ClientFactory) http.Handler {
+	if factory == nil {
+		panic("MCP handler requires a ClientFactory")
 	}
 
-	handler := mcp.NewStreamableHTTPHandler(
+	return mcp.NewStreamableHTTPHandler(
 		func(r *http.Request) *mcp.Server {
-			return serverForRequest(r, g, resolver, opts)
+			return serverForRequest(r, g, factory)
 		},
 		&mcp.StreamableHTTPOptions{
 			Stateless: true, // Per SEP-1442/2322: stateless from day one
 		},
 	)
-
-	mux.Handle(Path, handler)
 }
 
-// serverForRequest builds an MCP server scoped to the authenticated caller.
-// Returns an error server if authentication or graph readiness fails.
-func serverForRequest(r *http.Request, g *graph.Graph, resolver auth.Resolver, opts *Options) *mcp.Server {
+// serverForRequest builds an MCP server scoped to the authenticated
+// caller. Returns an error server if the identity is missing or the
+// graph is not ready, so MCP clients see a useful message rather than
+// a connection failure.
+func serverForRequest(r *http.Request, g *graph.Graph, factory *ClientFactory) *mcp.Server {
 	if !g.Ready() {
 		return errorServer("access graph is not ready; try again shortly")
 	}
 
-	id, err := resolver.Resolve(r.Context(), r)
-	if err != nil {
-		log.Printf("mcp: auth failed: %v", err)
-		return errorServer("authentication failed")
+	u, ok := genericapirequest.UserFrom(r.Context())
+	if !ok {
+		// The apiserver filter chain authenticates before delegation;
+		// a missing user here means a wiring bug, not a client error.
+		klog.Error("mcp: no user in request context; authentication filter did not run?")
+		return errorServer("no authenticated user in request context")
 	}
 
-	token := auth.BearerTokenFromRequest(r)
-	if token == "" {
-		log.Printf("mcp: no bearer token for user %s", id.Username)
-		return errorServer("missing bearer token")
-	}
-
-	log.Printf("mcp: authenticated user=%s groups=%v token_len=%d",
-		id.Username, id.Groups, len(token))
-
-	clusters := g.ClustersFor(id.Username, id.Groups)
-	log.Printf("mcp: user=%s has access to %d workspaces", id.Username, len(clusters))
+	clusters := g.ClustersFor(u.GetName(), u.GetGroups())
+	klog.V(4).InfoS("mcp: building scoped server", "user", u.GetName(), "groups", u.GetGroups(), "workspaces", len(clusters))
 
 	scope := &WorkspaceScope{
-		User:        id.Username,
-		Groups:      id.Groups,
-		Token:       token,
+		User:        u,
 		ClusterList: clusters,
-		factory:     opts.ClientFactory,
+		factory:     factory,
 	}
 
 	return NewServer(scope)
