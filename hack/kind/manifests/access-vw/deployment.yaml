@@ -52,8 +52,20 @@ spec:
             # a cert signed by the requestheader client CA (the front-proxy).
             - --requestheader-client-ca-file=/etc/kcp/requestheader-ca/tls.crt
             - --requestheader-allowed-names=kcp-front-proxy
-            # kcp connection: RBAC provider informers, TokenReview delegate,
-            # and the base identity for impersonated per-workspace MCP calls.
+            - --requestheader-username-headers=X-Remote-User
+            - --requestheader-group-headers=X-Remote-Group
+            - --requestheader-extra-headers-prefix=X-Remote-Extra-
+            # OIDC — same configuration as kcp so usernames and groups
+            # resolve identically. Required for MCP clients that reach
+            # the VW directly (via the AI gateway) with a bearer token.
+            - --oidc-issuer-url=https://keycloak.kcp.example:8443/realms/kcp
+            - --oidc-client-id=kcp
+            - --oidc-username-claim=preferred_username
+            - --oidc-username-prefix=-
+            - --oidc-groups-claim=groups
+            - --oidc-ca-file=/etc/kcp/oidc-ca/ca.crt
+            # kcp connection: RBAC provider informers and the base
+            # identity for impersonated per-workspace MCP calls.
             - --kubeconfig=/etc/kcp/admin.kubeconfig
             - --apiexport-endpointslice=access.kcp.io
             # Per-cluster endpoints returned in SCAR responses (front-proxy URL).
@@ -85,6 +97,9 @@ spec:
             - name: requestheader-ca
               mountPath: /etc/kcp/requestheader-ca
               readOnly: true
+            - name: oidc-ca
+              mountPath: /etc/kcp/oidc-ca
+              readOnly: true
       volumes:
         - name: kcp-kubeconfig
           secret:
@@ -101,6 +116,12 @@ spec:
             items:
               - key: tls.crt
                 path: tls.crt
+        - name: oidc-ca
+          secret:
+            secretName: keycloak-ca
+            items:
+              - key: ca.crt
+                path: ca.crt
 ---
 apiVersion: v1
 kind: Service

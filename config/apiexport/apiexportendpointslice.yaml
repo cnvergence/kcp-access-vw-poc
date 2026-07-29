@@ -1,0 +1,17 @@
+# The APIExportEndpointSlice is what the access VW actually watches: its
+# status carries one virtual-workspace URL per shard serving the APIExport,
+# and the RBAC provider follows those URLs to discover consumer workspaces.
+#
+# It is NOT created automatically by kcp — without it, --apiexport-endpointslice
+# names an object that does not exist, no logical clusters are ever engaged, and
+# the server reports itself ready while serving an empty graph.
+#
+# Lives in the same workspace as the APIExport, so spec.export.path is omitted
+# and defaults to this logical cluster.
+apiVersion: apis.kcp.io/v1alpha1
+kind: APIExportEndpointSlice
+metadata:
+  name: access.kcp.io
+spec:
+  export:
+    name: access.kcp.io

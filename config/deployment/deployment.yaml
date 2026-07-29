@@ -10,8 +10,9 @@
 # Auth model: the server is a virtual-workspace root apiserver with
 # standard delegated authentication. X-Remote-* identity headers are
 # trusted only from callers presenting a client certificate signed by
-# --requestheader-client-ca-file (kcp's FrontProxy); bearer tokens are
-# validated via TokenReview against kcp. Serving is TLS-only.
+# --requestheader-client-ca-file (kcp's FrontProxy); OIDC bearer tokens
+# are validated locally using the same issuer/claim configuration as
+# kcp. Serving is TLS-only.
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -46,6 +47,19 @@ spec:
             # client certificate; identity headers are only trusted
             # over mTLS with this CA.
             - --requestheader-client-ca-file=/etc/access-vw/requestheader-ca/ca.crt
+            - --requestheader-username-headers=X-Remote-User
+            - --requestheader-group-headers=X-Remote-Group
+            - --requestheader-extra-headers-prefix=X-Remote-Extra-
+            # OIDC — must match kcp's configuration so usernames and
+            # groups resolve identically. Required for direct callers
+            # (MCP clients via an AI gateway) presenting a bearer token
+            # that the front-proxy has not validated.
+            - --oidc-issuer-url=https://keycloak.kcp.example:8443/realms/kcp
+            - --oidc-client-id=kcp
+            - --oidc-username-claim=preferred_username
+            - --oidc-username-prefix=-
+            - --oidc-groups-claim=groups
+            - --oidc-ca-file=/etc/access-vw/oidc-ca/ca.crt
             - --kubeconfig=/etc/kcp/kubeconfig/kubeconfig
             - --apiexport-endpointslice=access.kcp.io
             # endpoint-base must match the FrontProxy URL prefix used
@@ -76,6 +90,9 @@ spec:
             - name: requestheader-ca
               mountPath: /etc/access-vw/requestheader-ca
               readOnly: true
+            - name: oidc-ca
+              mountPath: /etc/access-vw/oidc-ca
+              readOnly: true
           resources:
             requests:
               cpu: 100m
@@ -100,6 +117,12 @@ spec:
             # Key "ca.crt": CA that signed the FrontProxy's
             # requestheader client certificate.
             secretName: access-vw-requestheader-ca
+        - name: oidc-ca
+          secret:
+            # Key "ca.crt": CA that signed the OIDC issuer's TLS
+            # certificate. Only needed when the issuer uses a
+            # private CA (e.g. self-signed or mkcert).
+            secretName: access-vw-oidc-ca
 ---
 apiVersion: v1
 kind: ServiceAccount

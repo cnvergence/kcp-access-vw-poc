@@ -1,8 +1,35 @@
+/*
+Copyright 2026 The kcp Authors.
+
+Licensed under the Apache License, Version 2.0 (the "License");
+you may not use this file except in compliance with the License.
+You may obtain a copy of the License at
+
+    http://www.apache.org/licenses/LICENSE-2.0
+
+Unless required by applicable law or agreed to in writing, software
+distributed under the License is distributed on an "AS IS" BASIS,
+WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+See the License for the specific language governing permissions and
+limitations under the License.
+*/
+
 package rbacprovider
 
 import (
 	"context"
 	"fmt"
+
+	"github.com/go-logr/logr"
+	ctrl "sigs.k8s.io/controller-runtime"
+	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/log"
+	"sigs.k8s.io/controller-runtime/pkg/manager"
+	metricsserver "sigs.k8s.io/controller-runtime/pkg/metrics/server"
+	"sigs.k8s.io/controller-runtime/pkg/reconcile"
+	mcbuilder "sigs.k8s.io/multicluster-runtime/pkg/builder"
+	mcmanager "sigs.k8s.io/multicluster-runtime/pkg/manager"
+	mcreconcile "sigs.k8s.io/multicluster-runtime/pkg/reconcile"
 
 	rbacv1 "k8s.io/api/rbac/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
@@ -10,52 +37,17 @@ import (
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
 	"k8s.io/client-go/kubernetes/scheme"
 	"k8s.io/client-go/rest"
-	ctrl "sigs.k8s.io/controller-runtime"
-	"sigs.k8s.io/controller-runtime/pkg/log"
-	"sigs.k8s.io/controller-runtime/pkg/manager"
-	metricsserver "sigs.k8s.io/controller-runtime/pkg/metrics/server"
-	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
-	mcbuilder "sigs.k8s.io/multicluster-runtime/pkg/builder"
-	mcmanager "sigs.k8s.io/multicluster-runtime/pkg/manager"
-	mcreconcile "sigs.k8s.io/multicluster-runtime/pkg/reconcile"
-
+	"github.com/kcp-dev/logicalcluster/v3"
+	"github.com/kcp-dev/multicluster-provider/apiexport"
+	"github.com/kcp-dev/multicluster-provider/pkg/handlers"
 	apisv1alpha1 "github.com/kcp-dev/sdk/apis/apis/v1alpha1"
 	corev1alpha1 "github.com/kcp-dev/sdk/apis/core/v1alpha1"
 	tenancyv1alpha1 "github.com/kcp-dev/sdk/apis/tenancy/v1alpha1"
 
-	"github.com/kcp-dev/multicluster-provider/apiexport"
-
 	"github.com/cnvergence/kcp-access-vw/pkg/graph"
 )
 
-// runMulticluster wires the translator into a multicluster-runtime
-// manager backed by kcp-dev/multicluster-provider/apiexport.
-//
-// Architecture:
-//
-//   - One mcmanager.Manager owns the fleet.
-//   - apiexport.Provider, watching the configured APIExportEndpointSlice,
-//     supplies the fleet: every logical cluster with an APIBinding to
-//     the access VW's APIExport joins as a "cluster" in the
-//     multicluster-runtime sense, addressable by its kcp logical
-//     cluster name. This is the "opt-in indexing" behaviour the
-//     design calls for — workspaces only show up in the graph if
-//     they bind to the access VW's APIExport.
-//   - Two mcbuilder controllers, one per RBAC kind, fan reconciles
-//     into the shared Translator. Reconcile inputs carry ClusterName
-//     directly, so we don't need to re-derive logical-cluster context
-//     from annotations the way the single-shard wiring does.
-//
-// runMulticluster blocks on mgr.Start until ctx is cancelled. The
-// graph is marked Ready once the manager's caches have synced; the
-// SCAR handler returns 503 until then.
-//
-// kcp-side configuration: the access VW's system APIExport must
-// export ClusterRoleBinding and RoleBinding from
-// rbac.authorization.k8s.io/v1, otherwise the apiexport virtual
-// workspace won't surface them. That is not something this code
-// controls; it's a deployment concern.
 func (p *Provider) runMulticluster(ctx context.Context, cfg *rest.Config, g *graph.Graph) error {
 	if p.APIExportEndpointSlice == "" {
 		return fmt.Errorf("APIExportEndpointSlice is required for multi-shard mode")
@@ -70,8 +62,9 @@ func (p *Provider) runMulticluster(ctx context.Context, cfg *rest.Config, g *gra
 	utilruntime.Must(apisv1alpha1.AddToScheme(sch))
 
 	provider, err := apiexport.New(cfg, p.APIExportEndpointSlice, apiexport.Options{
-		Scheme: sch,
-		Log:    &logger,
+		Scheme:   sch,
+		Log:      &logger,
+		Handlers: handlers.Handlers{clusterLifecycle{t: p.translator, engaged: &p.engaged, logger: logger}},
 	})
 	if err != nil {
 		return fmt.Errorf("construct apiexport provider: %w", err)
@@ -89,19 +82,24 @@ func (p *Provider) runMulticluster(ctx context.Context, cfg *rest.Config, g *gra
 		return fmt.Errorf("register controllers: %w", err)
 	}
 
-	// Mark the graph Ready once the manager has started its
-	// runnables. Multicluster-runtime engages clusters
-	// asynchronously, so there's no single "fleet synced" event we
-	// can hook here; flipping Ready when the manager starts means
-	// SCAR responses become non-503 once the manager is alive, with
-	// the implicit caveat that very-early queries may see a
-	// partially-populated graph as clusters get engaged. The
-	// translator's idempotent Apply semantics make that safe — the
-	// graph will converge — but consumers that need strict
-	// completeness should poll Ready a couple of times.
 	if err := mgr.GetLocalManager().Add(manager.RunnableFunc(func(ctx context.Context) error {
+		if !mgr.GetLocalManager().GetCache().WaitForCacheSync(ctx) {
+			return fmt.Errorf("discovery cache did not sync")
+		}
+
 		g.SetReady()
-		logger.Info("access graph marked ready (multicluster manager started)")
+
+		engaged := p.EngagedClusters()
+		if engaged == 0 {
+			logger.Info("access graph is ready but no logical clusters were discovered; "+
+				"check that the APIExportEndpointSlice exists and that consumer workspaces have an "+
+				"APIBinding accepting this APIExport's permission claims",
+				"apiExportEndpointSlice", p.APIExportEndpointSlice)
+		} else {
+			logger.Info("access graph marked ready (cluster discovery cache synced)",
+				"engagedClusters", engaged)
+		}
+
 		<-ctx.Done()
 		return nil
 	})); err != nil {
@@ -109,6 +107,34 @@ func (p *Provider) runMulticluster(ctx context.Context, cfg *rest.Config, g *gra
 	}
 
 	return mgr.Start(ctx)
+}
+
+type clusterLifecycle struct {
+	t       *Translator
+	engaged *clusterSet
+	logger  logr.Logger
+}
+
+func (c clusterLifecycle) OnAdd(obj client.Object) {
+	cluster := graph.LogicalCluster(logicalcluster.From(obj).String())
+	if cluster == "" {
+		return
+	}
+	c.engaged.add(cluster)
+	c.logger.V(2).Info("cluster joined the fleet", "cluster", cluster, "engagedClusters", c.engaged.len())
+}
+
+func (c clusterLifecycle) OnUpdate(client.Object, client.Object) {}
+
+func (c clusterLifecycle) OnDelete(obj client.Object) {
+	cluster := graph.LogicalCluster(logicalcluster.From(obj).String())
+	if cluster == "" {
+		return
+	}
+	c.engaged.remove(cluster)
+	c.logger.Info("cluster left the fleet, dropping from access graph",
+		"cluster", cluster, "engagedClusters", c.engaged.len())
+	c.t.ForgetCluster(cluster)
 }
 
 func registerRBACControllers(

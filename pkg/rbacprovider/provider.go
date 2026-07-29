@@ -1,8 +1,25 @@
+/*
+Copyright 2026 The kcp Authors.
+
+Licensed under the Apache License, Version 2.0 (the "License");
+you may not use this file except in compliance with the License.
+You may obtain a copy of the License at
+
+	http://www.apache.org/licenses/LICENSE-2.0
+
+Unless required by applicable law or agreed to in writing, software
+distributed under the License is distributed on an "AS IS" BASIS,
+WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+See the License for the specific language governing permissions and
+limitations under the License.
+*/
 package rbacprovider
 
 import (
 	"context"
 	"fmt"
+	"strings"
+	"sync"
 
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/rest"
@@ -40,8 +57,9 @@ var _ accessprovider.AccessProvider = (*Provider)(nil)
 //     supplied REST config.
 //   - Stub mode: RestConfig is nil. Start builds the translator,
 //     marks the graph Ready (with an empty data set), and blocks on
-//     ctx. Useful for the demo binary and for tests that drive the
-//     translator manually via the Translator() accessor.
+//     ctx. Useful for the demo binary. Tests that want to drive
+//     translation directly construct a NewTranslator instead of going
+//     through a Provider.
 type Provider struct {
 	// EndpointBaseURL is the FrontProxy URL prefix used to construct
 	// each cluster's endpoint. Per-cluster URL is base + cluster name.
@@ -60,31 +78,48 @@ type Provider struct {
 	APIExportEndpointSlice string
 
 	translator *Translator
+	engaged    clusterSet
 }
 
 // New returns a configured Provider in stub mode.
-//
-// Set RestConfig before calling Start to switch to live mode.
 func New(endpointBaseURL string) *Provider {
 	return &Provider{EndpointBaseURL: endpointBaseURL}
 }
 
-// Translator returns the underlying Translator, building one against
-// the supplied graph if Start has not run yet.
-//
-// Exposed so tests (and any caller wiring events manually before
-// real informers exist) can drive translation directly.
-func (p *Provider) Translator() *Translator {
-	return p.translator
+// EngagedClusters returns how many logical clusters the provider is
+// currently watching.
+func (p *Provider) EngagedClusters() int {
+	return p.engaged.len()
+}
+
+type clusterSet struct {
+	mu       sync.Mutex
+	clusters map[graph.LogicalCluster]struct{}
+}
+
+func (s *clusterSet) add(c graph.LogicalCluster) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.clusters == nil {
+		s.clusters = make(map[graph.LogicalCluster]struct{})
+	}
+	s.clusters[c] = struct{}{}
+}
+
+func (s *clusterSet) remove(c graph.LogicalCluster) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	delete(s.clusters, c)
+}
+
+func (s *clusterSet) len() int {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return len(s.clusters)
 }
 
 // Start implements accessprovider.AccessProvider. It dispatches to
-// one of three execution modes (multi-shard, single-shard, stub)
-// based on which fields are populated; see the Provider type doc for
-// the rules.
-//
-// Returning a non-nil error means the provider has given up; the
-// caller is expected to log it and exit (or restart the provider).
+// one of three execution modes (multi-shard, single-shard, stub).
 func (p *Provider) Start(ctx context.Context, g *graph.Graph) error {
 	p.translator = NewTranslator(g)
 
@@ -107,5 +142,10 @@ func (p *Provider) Start(ctx context.Context, g *graph.Graph) error {
 }
 
 func (p *Provider) endpointFor(c graph.LogicalCluster) string {
-	return p.EndpointBaseURL + string(c)
+	base := p.EndpointBaseURL
+	if base != "" && !strings.HasSuffix(base, "/") {
+		base += "/"
+	}
+
+	return base + string(c)
 }

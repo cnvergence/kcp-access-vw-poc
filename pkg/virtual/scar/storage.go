@@ -1,13 +1,21 @@
+/*
+Copyright 2026 The kcp Authors.
+
+Licensed under the Apache License, Version 2.0 (the "License");
+you may not use this file except in compliance with the License.
+You may obtain a copy of the License at
+
+    http://www.apache.org/licenses/LICENSE-2.0
+
+Unless required by applicable law or agreed to in writing, software
+distributed under the License is distributed on an "AS IS" BASIS,
+WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+See the License for the specific language governing permissions and
+limitations under the License.
+*/
+
 // Package scar implements the SelfClusterAccessReview API of the
 // Access Virtual Workspace.
-//
-// The resource is served as a real Kubernetes API through the kcp
-// virtual-workspace-framework: a create-only REST storage modelled on
-// SelfSubjectAccessReview. Callers POST an (empty) SelfClusterAccessReview
-// and get it back with Status.Clusters filled in from the shared access
-// graph, based on the identity the apiserver authentication layer resolved
-// for the request. No authorization decisions are made here — SCAR is a
-// self-review, the caller asks about themselves.
 package scar
 
 import (
@@ -19,15 +27,12 @@ import (
 	"k8s.io/apimachinery/pkg/runtime"
 	genericapirequest "k8s.io/apiserver/pkg/endpoints/request"
 	"k8s.io/apiserver/pkg/registry/rest"
+	"k8s.io/klog/v2"
 
 	accessv1alpha1 "github.com/cnvergence/kcp-access-vw/pkg/apis/access/v1alpha1"
 	"github.com/cnvergence/kcp-access-vw/pkg/graph"
 )
 
-// REST implements the create-only REST storage for
-// selfclusteraccessreviews. It is deliberately minimal: no list, no
-// get, no watch — the resource is a question, not an object with
-// server-side state.
 type REST struct {
 	graph *graph.Graph
 }
@@ -62,9 +67,8 @@ func (r *REST) GetSingularName() string {
 	return "selfclusteraccessreview"
 }
 
-// Create answers the self-review: it resolves the caller from the
-// request context (populated by the apiserver authentication filter)
-// and fills Status.Clusters from the access graph.
+// Create answers the self-review, it resolves the caller from the
+// request context and fills Status.Clusters from the access graph.
 func (r *REST) Create(ctx context.Context, obj runtime.Object, _ rest.ValidateObjectFunc, _ *metav1.CreateOptions) (runtime.Object, error) {
 	review, ok := obj.(*accessv1alpha1.SelfClusterAccessReview)
 	if !ok {
@@ -82,20 +86,25 @@ func (r *REST) Create(ctx context.Context, obj runtime.Object, _ rest.ValidateOb
 
 	clusters := r.graph.ClustersFor(user.GetName(), user.GetGroups())
 
+	klog.FromContext(ctx).V(4).Info("answered SelfClusterAccessReview",
+		"username", user.GetName(),
+		"groups", user.GetGroups(),
+		"clusters", len(clusters),
+	)
+
 	out := review.DeepCopy()
 	out.Status = accessv1alpha1.SelfClusterAccessReviewStatus{
 		Clusters: toAccessEndpointSlices(clusters),
 	}
+
 	return out, nil
 }
 
-// toAccessEndpointSlices converts the graph's internal slice type to
-// the wire type. Both have identical fields; the boundary keeps the
-// graph free of api/ imports.
 func toAccessEndpointSlices(in []graph.AccessEndpointSlice) []accessv1alpha1.AccessEndpointSlice {
 	if in == nil {
 		return nil
 	}
+
 	out := make([]accessv1alpha1.AccessEndpointSlice, len(in))
 	for i, s := range in {
 		out[i] = accessv1alpha1.AccessEndpointSlice{
@@ -103,5 +112,6 @@ func toAccessEndpointSlices(in []graph.AccessEndpointSlice) []accessv1alpha1.Acc
 			Endpoint:    s.Endpoint,
 		}
 	}
+
 	return out
 }

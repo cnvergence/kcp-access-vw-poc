@@ -7,6 +7,8 @@ ENDPOINT_BASE    ?= https://localhost:6443/clusters/
 SECURE_PORT      ?= 9443
 APIEXPORT_SLICE  ?= access.kcp.io
 EXPORT_PATH      ?= root
+WORKSPACE         ?= root:access
+CREATE_WORKSPACES ?= false
 WS_ALICE         ?= workspace-alice
 WS_BOB           ?= workspace-bob
 
@@ -26,6 +28,7 @@ help: ## Show available targets
 .PHONY: build
 build: ## Build the access-vw and scar-to-kubeconfig binaries into bin/
 	go build -o bin/access-vw ./cmd/server
+	go build -o bin/access-vw-init ./cmd/init
 	go build -o bin/scar-to-kubeconfig ./cmd/scar-to-kubeconfig
 
 .PHONY: test
@@ -48,11 +51,23 @@ clean: ## Remove build artifacts
 # Run these against the workspace where the access VW's APIExport
 # should live (usually root or a system-adjacent workspace).
 
+.PHONY: init
+init: build ## Bootstrap kcp: install APIExport + schema + endpoint slice, then verify
+	./bin/access-vw-init \
+		--kubeconfig $(KUBECONFIG) \
+		--workspace $(WORKSPACE) \
+		$(if $(filter true,$(CREATE_WORKSPACES)),--create-workspaces,)
+
+.PHONY: verify-fork-pin
+verify-fork-pin: ## Check the kcp Kubernetes fork pin matches virtual-workspace-framework
+	./hack/verify-fork-pin.sh
+
 .PHONY: install-apiexport
 install-apiexport: ## Install the access.kcp.io APIExport + ARS in $(EXPORT_PATH)
 	kubectl ws use $(EXPORT_PATH)
 	kubectl apply -f config/apiexport/apiresourceschema.yaml
 	kubectl apply -f config/apiexport/apiexport.yaml
+	kubectl apply -f config/apiexport/apiexportendpointslice.yaml
 
 .PHONY: show-apiexport
 show-apiexport: ## Show the APIExport, ARS and generated EndpointSlice

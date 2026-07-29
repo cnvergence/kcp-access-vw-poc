@@ -1,9 +1,27 @@
+/*
+Copyright 2026 The kcp Authors.
+
+Licensed under the Apache License, Version 2.0 (the "License");
+you may not use this file except in compliance with the License.
+You may obtain a copy of the License at
+
+    http://www.apache.org/licenses/LICENSE-2.0
+
+Unless required by applicable law or agreed to in writing, software
+distributed under the License is distributed on an "AS IS" BASIS,
+WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+See the License for the specific language governing permissions and
+limitations under the License.
+*/
+
 package server
 
 import (
+	"errors"
 	"fmt"
 
 	"github.com/spf13/pflag"
+
 	genericoptions "k8s.io/apiserver/pkg/server/options"
 
 	vwoptions "github.com/kcp-dev/virtual-workspace-framework/pkg/options"
@@ -17,23 +35,21 @@ type Options struct {
 	// the proxy's client cert via the requestheader CA.
 	SecureServing *genericoptions.SecureServingOptions
 
-	// Authentication configures delegated authentication:
-	//   - requestheader: trust X-Remote-User/X-Remote-Group/X-Remote-Extra-*
-	//     from clients presenting a cert signed by --requestheader-client-ca-file
-	//     (this is how kcp's front-proxy forwards identity),
-	//   - bearer tokens: TokenReview against kcp (direct access without
-	//     the front-proxy, e.g. local development),
-	//   - client certs via --client-ca-file.
-	Authentication *genericoptions.DelegatingAuthenticationOptions
+	// Authentication configures how callers are identified: a JWT
+	// authenticator (--authentication-config or the --oidc-* flags),
+	// request header identity forwarded by kcp's front-proxy, and
+	// client certificates. Its configuration must match kcp's, because
+	// the graph compares usernames verbatim against RBAC subjects —
+	// see authentication.go.
+	Authentication *Authentication
 
 	// Authorization is the virtual-workspace-framework authorizer setup:
 	// always-allow paths (health endpoints) plus per-VW authorizers.
 	Authorization *vwoptions.Authorization
 
 	// Kubeconfig is the path to the kubeconfig for the target kcp.
-	// Used by the RBAC provider (informers), for TokenReview-based
-	// authentication, and as the base identity for impersonated
-	// per-workspace MCP calls.
+	// Used by the RBAC provider's informers and as the base identity
+	// for impersonated per-workspace calls.
 	Kubeconfig string
 
 	// EndpointBase is the front-proxy URL prefix used to construct
@@ -52,17 +68,12 @@ type Options struct {
 func NewOptions() *Options {
 	o := &Options{
 		SecureServing:  genericoptions.NewSecureServingOptions(),
-		Authentication: genericoptions.NewDelegatingAuthenticationOptions(),
+		Authentication: NewAuthentication(),
 		Authorization:  vwoptions.NewAuthorization(),
 	}
 
 	o.SecureServing.BindPort = 9443
 	o.SecureServing.ServerCert.PairName = "access-vw"
-
-	// There is no kube-system extension-apiserver-authentication
-	// ConfigMap to read requestheader config from when the delegate is
-	// kcp; requestheader settings come from flags.
-	o.Authentication.SkipInClusterLookup = true
 
 	return o
 }
@@ -79,8 +90,6 @@ func (o *Options) AddFlags(fs *pflag.FlagSet) {
 		"Name of the APIExportEndpointSlice for the access VW's system APIExport. "+
 			"When set, the RBAC provider runs in multi-shard mode via multicluster-runtime; "+
 			"only workspaces with an APIBinding to that APIExport are indexed.")
-	// --kubeconfig may already be registered by controller-runtime's
-	// init; main wires it either way. Only register it here if absent.
 	if fs.Lookup("kubeconfig") == nil {
 		fs.StringVar(&o.Kubeconfig, "kubeconfig", "", "Path to the kubeconfig for the target kcp (required).")
 	}
@@ -92,25 +101,25 @@ func (o *Options) Complete() error {
 		return fmt.Errorf("--kubeconfig is required")
 	}
 
-	// Default the authentication delegate to the same kcp the server
-	// works against, unless --authentication-kubeconfig was given.
-	if o.Authentication.RemoteKubeConfigFile == "" {
-		o.Authentication.RemoteKubeConfigFile = o.Kubeconfig
+	if !o.Authentication.OIDCEnabled() && !o.Authentication.RequestHeaderEnabled() {
+		return fmt.Errorf("no authentication method configured: set --authentication-config or --oidc-issuer-url " +
+			"for direct callers, and/or --requestheader-client-ca-file when running behind kcp's front-proxy")
 	}
 
 	return nil
 }
 
-// Validate checks flag consistency.
+// Validate checks flag consistency, reporting every problem it finds
+// rather than only the first.
 func (o *Options) Validate() error {
-	var errs []error
-	errs = append(errs, o.SecureServing.Validate()...)
-	errs = append(errs, o.Authentication.Validate()...)
-	errs = append(errs, o.Authorization.Validate()...)
-	for _, err := range errs {
-		if err != nil {
-			return err
-		}
-	}
-	return nil
+	secureServingErrs := o.SecureServing.Validate()
+	authenticationErrs := o.Authentication.Validate()
+	authorizationErrs := o.Authorization.Validate()
+
+	errs := make([]error, 0, len(secureServingErrs)+len(authenticationErrs)+len(authorizationErrs))
+	errs = append(errs, secureServingErrs...)
+	errs = append(errs, authenticationErrs...)
+	errs = append(errs, authorizationErrs...)
+
+	return errors.Join(errs...)
 }
