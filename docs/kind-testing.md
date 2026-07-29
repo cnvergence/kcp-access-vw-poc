@@ -15,13 +15,13 @@ MCP Client (Claude Code, Copilot CLI)
            ▼
 ┌──────────────────────────────┐
 │  access-vw                   │   ← Built-in MCP server + SCAR API
-│  (TokenReview · graph scope) │     authenticates via OIDC token,
+│  (OIDC · graph scope)        │     validates OIDC token directly,
 └──────────┬───────────────────┘     scopes tools to user's workspaces
            │
            ▼
 ┌──────────────────────────────┐
 │  kcp shard                   │   ← workspace K8s API calls
-│  (per-workspace endpoints)   │     using caller's bearer token
+│  (per-workspace endpoints)   │     via impersonation
 └──────────────────────────────┘
     ▲
     │  OIDC token validation
@@ -31,7 +31,7 @@ MCP Client (Claude Code, Copilot CLI)
 └──────────────────────────────┘
 ```
 
-The **built-in MCP server** in access-vw serves MCP tools at `/services/mcp`, behind the kcp FrontProxy. The FrontProxy validates the caller's OIDC token and forwards the identity via requestheader mTLS; access-vw queries the permission graph for the caller's workspaces and scopes all tool operations to those workspaces only, impersonating the caller for per-workspace kcp calls. No separate MCP server binary is needed.
+The **built-in MCP server** in access-vw serves MCP tools at `/services/mcp`. The AI Gateway routes MCP traffic directly to access-vw, which validates the caller's OIDC token itself (same issuer/claims configuration as kcp). access-vw queries the permission graph for the caller's workspaces and scopes all tool operations to those workspaces only, impersonating the caller for per-workspace kcp calls. No separate MCP server binary is needed. For SCAR requests, the kcp FrontProxy validates the OIDC token and forwards identity via requestheader mTLS to access-vw at `/services/access`.
 
 > **Alternative:** An upstream `kubernetes-mcp-server` deployment is available via `make install-mcp-upstream` — see [Alternative: upstream kubernetes-mcp-server](#alternative-upstream-kubernetes-mcp-server) below.
 
@@ -46,7 +46,8 @@ For the simpler host-local `kcp start` setup (no Kind, no Keycloak, no gateway),
 | [kubectl](https://kubernetes.io/docs/tasks/tools/) | v1.31+ | Kubernetes CLI |
 | [Helm](https://helm.sh/docs/intro/install/) | v3.16+ | Chart deployment |
 | [jq](https://jqlang.github.io/jq/) | Any | JSON output formatting |
-| Go | 1.25+ | Building access-vw |
+| [mkcert](https://github.com/FiloSottile/mkcert) | Any | Host-trusted TLS certificates for Keycloak |
+| Go | 1.26+ | Building access-vw |
 
 The `kubectl-ws` plugin is **not** required — it's installed inside the kcp container. The setup script uses `kubectl ws` via the admin kubeconfig (exposed via Kind NodePort).
 
@@ -67,7 +68,7 @@ The Makefile runs these steps sequentially (`make -C hack/kind setup`):
 | 1 | Kind cluster | — | Creates cluster `kcp-access-vw` with NodePort mappings (8443, 6443) |
 | 1b | MetalLB | `metallb-system` | LoadBalancer support for Kind (IP pool `172.18.0.200-250`) |
 | 2 | cert-manager | `cert-manager` | TLS certificate management (required by kcp-operator and Keycloak) |
-| 4a | Keycloak TLS | `keycloak` | Self-signed CA + TLS certificate for Keycloak HTTPS |
+| 4a | Keycloak TLS | `keycloak` | Host-trusted CA + TLS certificate for Keycloak HTTPS (via mkcert) |
 | 3 | Envoy Gateway + AI Gateway | `envoy-gateway-system` | Base gateway + MCP routing controller + `MCPRoute` CRD |
 | 4 | kcp | `kcp-system` | kcp-operator → etcd → RootShard → FrontProxy (with OIDC) |
 | 5 | Keycloak | `keycloak` | OIDC provider with `kcp` realm, users alice/bob, dynamic client registration |
@@ -100,9 +101,9 @@ The full authentication chain works end-to-end with real OIDC tokens:
 2. **MCP client sends token** to the Envoy AI Gateway (`http://mcp.kcp.example:8080/mcp`)
 3. **Envoy validates the token** via Keycloak's JWKS endpoint
 4. **Token passes through** to access-vw's built-in MCP handler (via `Authorization` header forwarding)
-5. **access-vw performs a TokenReview** against kcp — validates the OIDC token and extracts the user identity
+5. **access-vw validates the OIDC token** — using its own OIDC authenticator (same issuer/claims config as kcp), extracts the user identity without a TokenReview round-trip
 6. **access-vw queries the permission graph** — returns only workspaces the caller has access to
-7. **MCP tools execute against scoped workspaces** — each K8s API call uses the caller's bearer token against the per-workspace endpoint
+7. **MCP tools execute against scoped workspaces** — each K8s API call impersonates the caller via access-vw's own kcp identity
 
 ## Step-by-step walkthrough
 
@@ -138,10 +139,10 @@ Required by kcp-operator for shard/proxy TLS certificates and by Keycloak for HT
 ### 4a. Create Keycloak TLS certificate
 
 ```sh
-kubectl apply -f hack/kind/manifests/keycloak/certificate.yaml
+hack/kind/scripts/create-keycloak-certs.sh
 ```
 
-Creates a self-signed CA (`keycloak-ca`) and a leaf TLS certificate (`keycloak-tls`) for Keycloak's HTTPS endpoint. The CA is copied to `kcp-system` so RootShard and FrontProxy can trust the OIDC issuer.
+Uses [mkcert](https://github.com/FiloSottile/mkcert) to generate a TLS certificate for `keycloak.kcp.example` that is automatically trusted by the host OS (macOS system keychain / Linux trust store). This is required so MCP clients (which run on the host in Node.js) can complete the OAuth flow over HTTPS without TLS errors. The script creates `keycloak-tls` (for the Keycloak pod) and `keycloak-ca` (for kcp and access-vw OIDC verification) secrets in both the `keycloak` and `kcp-system` namespaces.
 
 This step runs before kcp so the CA secret exists when kcp starts with OIDC enabled.
 
@@ -191,7 +192,7 @@ helm upgrade --install keycloak codecentric/keycloakx \
   -f hack/kind/manifests/keycloak/values.yaml
 ```
 
-Keycloak runs with HTTPS (cert-manager TLS) using the official `quay.io/keycloak/keycloak` image in dev mode with an embedded H2 database.
+Keycloak runs with HTTPS (mkcert TLS) using the official `quay.io/keycloak/keycloak` image in dev mode with an embedded H2 database.
 
 Then `scripts/configure-keycloak.sh` configures:
 
@@ -211,7 +212,9 @@ make -C hack/kind install-access-vw    # builds image + deploys
 Builds the Go binary for `linux/amd64`, packages it in a distroless container, and loads it into Kind. The deployment:
 
 - serves TLS on `:9443` with a cert-manager certificate issued from the kcp-operator's `root-server-ca` issuer (so the FrontProxy can verify it against its existing root-CA mount),
-- mounts the `root-requestheader-client-ca` secret and runs with `--requestheader-client-ca-file` / `--requestheader-allowed-names=kcp-front-proxy`, so identity headers are only trusted from the FrontProxy's client certificate,
+- mounts the `root-requestheader-client-ca` secret and runs with `--requestheader-client-ca-file` / `--requestheader-allowed-names=kcp-front-proxy` / `--requestheader-username-headers=X-Remote-User` / `--requestheader-group-headers=X-Remote-Group` / `--requestheader-extra-headers-prefix=X-Remote-Extra-`, so identity headers are only trusted from the FrontProxy's client certificate,
+- runs with OIDC flags (`--oidc-issuer-url`, `--oidc-client-id`, `--oidc-username-claim`, `--oidc-groups-claim`, `--oidc-ca-file`) matching kcp's OIDC configuration so it can validate bearer tokens directly,
+- mounts the `keycloak-ca` secret for OIDC issuer TLS verification,
 - mounts a kcp admin kubeconfig (generated by kcp-operator `Kubeconfig` CR) and runs with `--apiexport-endpointslice=access.kcp.io` for multi-shard mode.
 
 access-vw serves two virtual workspaces:
@@ -228,12 +231,12 @@ This creates:
 - **Certificate** — self-signed TLS certificate for `mcp.kcp.example` (provisioned for future HTTPS; Gateway currently uses HTTP)
 - **GatewayClass** + **Gateway** — Envoy HTTP listener on port 8080
 - **EnvoyProxy** — custom Envoy bootstrap config with MCP-specific access logging
-- **MCPRoute** — routes MCP traffic to the kcp FrontProxy (`frontproxy-front-proxy:6443`) at path `/services/mcp` with OAuth:
+- **MCPRoute** — routes MCP traffic directly to access-vw (`access-vw:9443`) at path `/services/mcp` with OAuth:
   - Issuer: Keycloak's `kcp` realm (HTTPS)
   - JWKS: Keycloak's OIDC certs endpoint
-  - `Authorization` header forwarding so the FrontProxy receives (and validates) the caller's OIDC token, then forwards the identity to access-vw via requestheader mTLS
+  - `Authorization` header forwarding so access-vw receives the caller's OIDC token and validates it with its own OIDC authenticator
   - Protected resource metadata for OAuth discovery (`http://mcp.kcp.example:8080/mcp`)
-- **BackendTLSPolicy** — TLS origination for the Envoy → FrontProxy hop, validated against the kcp root CA (published to the `kcp-root-ca` ConfigMap by `make install-mcp`)
+- **BackendTLSPolicy** — TLS origination for the Envoy → access-vw hop, validated against the kcp root CA (access-vw's serving cert is issued by `root-server-ca`)
 
 MetalLB assigns the gateway an external IP (e.g., `172.18.0.200`).
 
@@ -260,7 +263,9 @@ Ensure your `/etc/hosts` entries are set (see [Network access](#network-access) 
 }
 ```
 
-The Envoy AI Gateway handles OAuth (via Keycloak) and forwards the caller's OIDC token to access-vw. The MCP client will discover Keycloak OAuth via the protected resource metadata, authenticate, and then interact with kcp workspaces scoped to the authenticated user's permissions.
+The Envoy AI Gateway handles OAuth (via Keycloak) and forwards the caller's OIDC token to access-vw, which validates it with its own OIDC authenticator. The MCP client will discover Keycloak OAuth via the protected resource metadata, authenticate, and then interact with kcp workspaces scoped to the authenticated user's permissions.
+
+> **Note:** The AI Gateway prefixes tool names with `access-vw__` (e.g. `access-vw__list_kcp_workspaces`). This is inherent to how the Envoy AI Gateway disambiguates backends and cannot be removed without upstream changes.
 
 ## Getting OIDC tokens manually
 
@@ -341,7 +346,7 @@ The setup mirrors the ADR 007 production architecture:
 
 - **Envoy AI Gateway** fills the "MCP-aware gateway" role from the ADR. It handles OIDC (via Keycloak), MCP protocol routing, and session management. In production this would be the edge gateway; here it runs in-cluster.
 - **kcp FrontProxy** authenticates every SCAR and MCP request (OIDC bearer tokens) and propagates identity as `X-Remote-User` / `X-Remote-Group` headers over requestheader mTLS. The `additionalPathMappings` on the FrontProxy CR register access-vw at `/services/access` and `/services/mcp`.
-- **access-vw** is a virtual-workspace root apiserver serving both the SCAR API and the built-in MCP server over TLS. It trusts identity headers only from the FrontProxy's requestheader client certificate; per-workspace MCP tool calls impersonate the caller through the FrontProxy using access-vw's own kcp identity.
+- **access-vw** is a virtual-workspace root apiserver serving both the SCAR API and the built-in MCP server over TLS. It validates OIDC tokens directly (for MCP clients via the AI Gateway) and trusts identity headers from the FrontProxy's requestheader client certificate (for SCAR via the front-proxy). Per-workspace MCP tool calls impersonate the caller through kcp using access-vw's own kcp identity.
 - **Keycloak** provides OIDC authentication. Both kcp (RootShard + FrontProxy) and the Envoy MCPRoute validate tokens against the same Keycloak realm.
 - **MetalLB** provides LoadBalancer IPs on the Kind Docker network, making the MCP gateway directly reachable from the host without port-forwarding.
 
@@ -349,7 +354,7 @@ The setup mirrors the ADR 007 production architecture:
 
 | Aspect | This setup | Production |
 |--------|-----------|------------|
-| TLS | Self-signed CA (cert-manager) | Real certificates |
+| TLS | mkcert CA (host-trusted) + cert-manager (in-cluster) | Real certificates |
 | kcp | Single shard, multi-shard code path, embedded cache | Multi-shard, dedicated etcd per shard |
 | Gateway | Envoy AI Gateway (HTTP, self-signed cert provisioned) | Edge gateway (Envoy or cloud LB, real certs, HTTPS) |
 | Keycloak | Local instance, `kcp` realm, H2 DB | External OIDC provider |
@@ -362,8 +367,8 @@ The setup mirrors the ADR 007 production architecture:
 | Aspect | `local-testing.md` | This Kind setup |
 |--------|-------------------|-----------------|
 | kcp | `kcp start` on host | In-cluster via kcp-operator |
-| Auth | Bearer tokens via `TokenReview` | Real OIDC via Keycloak + FrontProxy requestheader |
-| MCP | Direct to access-vw `:9443` (no gateway) | Envoy AI Gateway with OAuth → FrontProxy → access-vw |
+| Auth | Bearer tokens via `TokenReview` | Real OIDC via Keycloak + direct OIDC validation (MCP) / FrontProxy requestheader (SCAR) |
+| MCP | Direct to access-vw `:9443` (no gateway) | Envoy AI Gateway with OAuth → access-vw (direct OIDC) |
 | SCAR access | Direct HTTPS to `localhost:9443` | Via FrontProxy path mapping |
 | Token flow | ServiceAccount tokens | Keycloak OIDC tokens (alice/bob) |
 | Setup time | Seconds | ~5 minutes |

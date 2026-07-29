@@ -1,3 +1,19 @@
+/*
+Copyright 2026 The kcp Authors.
+
+Licensed under the Apache License, Version 2.0 (the "License");
+you may not use this file except in compliance with the License.
+You may obtain a copy of the License at
+
+    http://www.apache.org/licenses/LICENSE-2.0
+
+Unless required by applicable law or agreed to in writing, software
+distributed under the License is distributed on an "AS IS" BASIS,
+WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+See the License for the specific language governing permissions and
+limitations under the License.
+*/
+
 package graph_test
 
 import (
@@ -16,6 +32,8 @@ func slice(name string) graph.AccessEndpointSlice {
 }
 
 func TestGrant(t *testing.T) {
+	t.Parallel()
+
 	tests := []struct {
 		name   string
 		setup  func(*graph.Graph)
@@ -65,6 +83,8 @@ func TestGrant(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
 			g := graph.New()
 			tt.setup(g)
 			got := g.ClustersFor(tt.user, tt.groups)
@@ -76,6 +96,8 @@ func TestGrant(t *testing.T) {
 }
 
 func TestClustersFor(t *testing.T) {
+	t.Parallel()
+
 	tests := []struct {
 		name   string
 		setup  func(*graph.Graph)
@@ -135,6 +157,8 @@ func TestClustersFor(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
 			g := graph.New()
 			tt.setup(g)
 			got := g.ClustersFor(tt.user, tt.groups)
@@ -152,6 +176,8 @@ func TestClustersFor(t *testing.T) {
 }
 
 func TestRevoke(t *testing.T) {
+	t.Parallel()
+
 	tests := []struct {
 		name   string
 		setup  func(*graph.Graph)
@@ -191,6 +217,8 @@ func TestRevoke(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
 			g := graph.New()
 			tt.setup(g)
 			got := g.ClustersFor(tt.user, tt.groups)
@@ -208,6 +236,8 @@ func TestRevoke(t *testing.T) {
 }
 
 func TestForget(t *testing.T) {
+	t.Parallel()
+
 	g := graph.New()
 	g.Grant(graph.User("alice"), "ws-1", endpoint("ws-1"))
 	g.Grant(graph.Group("eng"), "ws-1", endpoint("ws-1"))
@@ -223,6 +253,8 @@ func TestForget(t *testing.T) {
 }
 
 func TestReady(t *testing.T) {
+	t.Parallel()
+
 	tests := []struct {
 		name     string
 		setReady bool
@@ -234,6 +266,8 @@ func TestReady(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
 			g := graph.New()
 			if tt.setReady {
 				g.SetReady()
@@ -242,5 +276,75 @@ func TestReady(t *testing.T) {
 				t.Errorf("Ready() = %v, want %v", got, tt.want)
 			}
 		})
+	}
+}
+
+func TestSetEndpoint(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name     string
+		setup    func(*graph.Graph)
+		wantURL  string
+		wantSeen bool
+	}{
+		{
+			name: "updates a known cluster",
+			setup: func(g *graph.Graph) {
+				g.Grant(graph.User("alice"), "ws-1", "https://old.example.com/clusters/ws-1")
+				g.SetEndpoint("ws-1", "https://new.example.com/clusters/ws-1")
+			},
+			wantURL:  "https://new.example.com/clusters/ws-1",
+			wantSeen: true,
+		},
+		{
+			name: "ignores a cluster nobody can reach",
+			setup: func(g *graph.Graph) {
+				g.SetEndpoint("ws-1", "https://new.example.com/clusters/ws-1")
+			},
+			wantSeen: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			g := graph.New()
+			tt.setup(g)
+
+			got := g.Snapshot().Clusters
+			url, seen := got["ws-1"]
+			if seen != tt.wantSeen {
+				t.Fatalf("cluster tracked = %v, want %v (%+v)", seen, tt.wantSeen, got)
+			}
+			if seen && url != tt.wantURL {
+				t.Errorf("endpoint = %q, want %q", url, tt.wantURL)
+			}
+		})
+	}
+}
+
+func TestRevokeDropsOrphanedEndpoint(t *testing.T) {
+	t.Parallel()
+
+	g := graph.New()
+	g.Grant(graph.User("alice"), "ws-1", endpoint("ws-1"))
+	g.Grant(graph.User("bob"), "ws-1", endpoint("ws-1"))
+
+	// Still reachable by bob, so the endpoint stays.
+	g.Revoke(graph.User("alice"), "ws-1")
+	if _, seen := g.Snapshot().Clusters["ws-1"]; !seen {
+		t.Fatal("endpoint dropped while bob still has access")
+	}
+
+	// Last subject gone: the cluster should leave the snapshot too.
+	g.Revoke(graph.User("bob"), "ws-1")
+	snap := g.Snapshot()
+	if _, seen := snap.Clusters["ws-1"]; seen {
+		t.Errorf("orphaned endpoint retained: %+v", snap.Clusters)
+	}
+	if len(snap.Subjects) != 0 {
+		t.Errorf("expected no subjects, got %+v", snap.Subjects)
 	}
 }

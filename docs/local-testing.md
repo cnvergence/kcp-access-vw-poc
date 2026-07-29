@@ -6,7 +6,7 @@ The common operations are wrapped in the `Makefile` — `make help` lists them. 
 
 ## Prerequisites
 
-- `go` 1.25+ (the toolchain declared in `go.mod`)
+- `go` 1.26+ (the toolchain declared in `go.mod`)
 - `kcp` running locally — typically via `kcp start` from a kcp checkout; the admin kubeconfig lands at `~/.kcp/admin.kubeconfig`
 - `kubectl` with the `kubectl-ws` plugin (`go install github.com/kcp-dev/kcp/cmd/kubectl-kcp/...` or the `krew` plugin)
 - `jq` for prettifying SCAR responses

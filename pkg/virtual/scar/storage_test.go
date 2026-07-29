@@ -1,3 +1,19 @@
+/*
+Copyright 2026 The kcp Authors.
+
+Licensed under the Apache License, Version 2.0 (the "License");
+you may not use this file except in compliance with the License.
+You may obtain a copy of the License at
+
+    http://www.apache.org/licenses/LICENSE-2.0
+
+Unless required by applicable law or agreed to in writing, software
+distributed under the License is distributed on an "AS IS" BASIS,
+WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+See the License for the specific language governing permissions and
+limitations under the License.
+*/
+
 package scar
 
 import (
@@ -13,6 +29,8 @@ import (
 )
 
 func TestCreate_GraphNotReady(t *testing.T) {
+	t.Parallel()
+
 	g := graph.New() // not ready
 	r := NewREST(g)
 
@@ -24,6 +42,8 @@ func TestCreate_GraphNotReady(t *testing.T) {
 }
 
 func TestCreate_NoUser(t *testing.T) {
+	t.Parallel()
+
 	g := graph.New()
 	g.SetReady()
 	r := NewREST(g)
@@ -35,6 +55,8 @@ func TestCreate_NoUser(t *testing.T) {
 }
 
 func TestCreate_ReturnsCallerClusters(t *testing.T) {
+	t.Parallel()
+
 	g := graph.New()
 	g.Grant(graph.User("alice"), graph.LogicalCluster("ws1"), "https://kcp.example/clusters/ws1")
 	g.Grant(graph.Group("team-a"), graph.LogicalCluster("ws2"), "https://kcp.example/clusters/ws2")

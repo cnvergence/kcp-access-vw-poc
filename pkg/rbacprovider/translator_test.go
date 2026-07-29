@@ -1,3 +1,19 @@
+/*
+Copyright 2026 The kcp Authors.
+
+Licensed under the Apache License, Version 2.0 (the "License");
+you may not use this file except in compliance with the License.
+You may obtain a copy of the License at
+
+    http://www.apache.org/licenses/LICENSE-2.0
+
+Unless required by applicable law or agreed to in writing, software
+distributed under the License is distributed on an "AS IS" BASIS,
+WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+See the License for the specific language governing permissions and
+limitations under the License.
+*/
+
 package rbacprovider_test
 
 import (
@@ -15,7 +31,7 @@ import (
 const testCluster graph.LogicalCluster = "ws-test"
 
 func testEndpoint(name string) string {
-	return "https://kcp.example.com/clusters/" + string(name)
+	return "https://kcp.example.com/clusters/" + name
 }
 
 func crb(name string, subjects ...rbacv1.Subject) *rbacv1.ClusterRoleBinding {
@@ -54,6 +70,8 @@ func clusterNames(slices []graph.AccessEndpointSlice) []string {
 }
 
 func TestApplyClusterRoleBinding(t *testing.T) {
+	t.Parallel()
+
 	tests := []struct {
 		name       string
 		setup      func(*rbacprovider.Translator)
@@ -115,6 +133,8 @@ func TestApplyClusterRoleBinding(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
 			g := graph.New()
 			tr := rbacprovider.NewTranslator(g)
 			tt.setup(tr)
@@ -134,6 +154,8 @@ func TestApplyClusterRoleBinding(t *testing.T) {
 }
 
 func TestApplyClusterRoleBinding_dedupesSameSubject(t *testing.T) {
+	t.Parallel()
+
 	g := graph.New()
 	tr := rbacprovider.NewTranslator(g)
 
@@ -146,6 +168,8 @@ func TestApplyClusterRoleBinding_dedupesSameSubject(t *testing.T) {
 }
 
 func TestApplyClusterRoleBinding_updatesSubjects(t *testing.T) {
+	t.Parallel()
+
 	g := graph.New()
 	tr := rbacprovider.NewTranslator(g)
 
@@ -164,6 +188,8 @@ func TestApplyClusterRoleBinding_updatesSubjects(t *testing.T) {
 }
 
 func TestApplyRoleBinding(t *testing.T) {
+	t.Parallel()
+
 	g := graph.New()
 	tr := rbacprovider.NewTranslator(g)
 
@@ -176,6 +202,8 @@ func TestApplyRoleBinding(t *testing.T) {
 }
 
 func TestRemoveClusterRoleBinding(t *testing.T) {
+	t.Parallel()
+
 	tests := []struct {
 		name  string
 		setup func(*rbacprovider.Translator)
@@ -201,6 +229,8 @@ func TestRemoveClusterRoleBinding(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
 			g := graph.New()
 			tr := rbacprovider.NewTranslator(g)
 			tt.setup(tr)
@@ -213,6 +243,8 @@ func TestRemoveClusterRoleBinding(t *testing.T) {
 }
 
 func TestOverlappingBindings(t *testing.T) {
+	t.Parallel()
+
 	tests := []struct {
 		name      string
 		setup     func(*rbacprovider.Translator)
@@ -245,6 +277,8 @@ func TestOverlappingBindings(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
 			g := graph.New()
 			tr := rbacprovider.NewTranslator(g)
 			tt.setup(tr)
@@ -258,6 +292,8 @@ func TestOverlappingBindings(t *testing.T) {
 }
 
 func TestApplyClusterRoleBinding_endpointUpdate(t *testing.T) {
+	t.Parallel()
+
 	g := graph.New()
 	tr := rbacprovider.NewTranslator(g)
 
@@ -270,17 +306,51 @@ func TestApplyClusterRoleBinding_endpointUpdate(t *testing.T) {
 		t.Fatalf("first apply: got endpoint %q, want %q", got[0].Endpoint, before)
 	}
 
-	// Subjects unchanged but endpoint moved. Current MVP keeps old
-	// endpoint since the diff has no subject changes to trigger a
-	// re-grant. This test pins that behavior.
 	tr.ApplyClusterRoleBinding(crb("b1", userSubject("alice")), testCluster, after)
 	got = g.ClustersFor("alice", nil)
-	if got[0].Endpoint != before {
-		t.Logf("MVP behavior change: endpoint refreshed to %q (was %q)", got[0].Endpoint, before)
+	if got[0].Endpoint != after {
+		t.Errorf("after endpoint move: got endpoint %q, want %q", got[0].Endpoint, after)
+	}
+}
+
+func TestApplyRoleBinding_serviceAccountNamespaceDefaulting(t *testing.T) {
+	t.Parallel()
+
+	g := graph.New()
+	tr := rbacprovider.NewTranslator(g)
+
+	tr.ApplyRoleBinding(
+		rb("team-a", "rb1", rbacv1.Subject{Kind: rbacv1.ServiceAccountKind, Name: "runner"}),
+		testCluster, testEndpoint("ws-test"),
+	)
+
+	if got := g.ClustersFor("system:serviceaccount:team-a:runner", nil); len(got) != 1 {
+		t.Errorf("expected the SA to be indexed under the binding's namespace, got %+v", got)
+	}
+	if got := g.ClustersFor("system:serviceaccount::runner", nil); len(got) != 0 {
+		t.Errorf("expected no entry for an empty namespace, got %+v", got)
+	}
+}
+
+func TestApplyClusterRoleBinding_serviceAccountWithoutNamespaceSkipped(t *testing.T) {
+	t.Parallel()
+
+	g := graph.New()
+	tr := rbacprovider.NewTranslator(g)
+
+	tr.ApplyClusterRoleBinding(
+		crb("b1", rbacv1.Subject{Kind: rbacv1.ServiceAccountKind, Name: "runner"}),
+		testCluster, testEndpoint("ws-test"),
+	)
+
+	if got := g.Snapshot(); len(got.Subjects) != 0 {
+		t.Errorf("expected no subjects indexed, got %+v", got.Subjects)
 	}
 }
 
 func TestForgetCluster(t *testing.T) {
+	t.Parallel()
+
 	g := graph.New()
 	tr := rbacprovider.NewTranslator(g)
 
@@ -306,6 +376,8 @@ func TestForgetCluster(t *testing.T) {
 }
 
 func TestRoleBinding_distinctFromCRB(t *testing.T) {
+	t.Parallel()
+
 	g := graph.New()
 	tr := rbacprovider.NewTranslator(g)
 

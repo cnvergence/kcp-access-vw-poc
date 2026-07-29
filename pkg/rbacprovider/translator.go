@@ -1,29 +1,25 @@
+/*
+Copyright 2026 The kcp Authors.
+
+Licensed under the Apache License, Version 2.0 (the "License");
+you may not use this file except in compliance with the License.
+You may obtain a copy of the License at
+
+    http://www.apache.org/licenses/LICENSE-2.0
+
+Unless required by applicable law or agreed to in writing, software
+distributed under the License is distributed on an "AS IS" BASIS,
+WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+See the License for the specific language governing permissions and
+limitations under the License.
+*/
+
 // Package rbacprovider implements the kcp-native RBAC AccessProvider.
 //
 // The provider observes ClusterRoleBindings and RoleBindings across
 // kcp shards and projects them onto the shared access graph: each
 // binding contributes (Subject, LogicalCluster) edges, the graph
 // sums them, and the SCAR HTTP handler reads from it.
-//
-// This file holds the pure translation logic — given a binding plus
-// its cluster context, what graph mutations does it produce — with
-// full reference counting so overlapping bindings (multiple bindings
-// granting the same Subject access to the same cluster) don't lose
-// access on partial deletion. The informer wiring that drives the
-// translator from real kcp events lives in provider.go and is filled
-// in once kcp's multicluster-runtime is integrated.
-//
-// MVP scope:
-//
-//   - Bindings grant "view" implicitly: any binding to a Subject in
-//     a workspace means the Subject can see the workspace. Resolving
-//     verbs through the role's PolicyRules to enforce strict "view
-//     or above" is a follow-up; the translator's API doesn't need to
-//     change to add it (we'll filter at the Apply boundary).
-//   - Subject kinds: User and Group map directly; ServiceAccount is
-//     translated to the canonical "system:serviceaccount:<ns>:<name>"
-//     User string. Other Kinds are skipped.
-//   - Warrants and Scopes are explicitly out of scope.
 package rbacprovider
 
 import (
@@ -46,23 +42,11 @@ type bindingState struct {
 }
 
 // Translator turns RBAC binding events into graph mutations.
-//
-// It is the pure-logic core of the RBAC AccessProvider: it consumes
-// rbacv1 binding events plus a (cluster, endpoint) context and emits
-// the right Grant/Revoke/Forget calls on the graph, with reference
-// counting so overlapping bindings cooperate cleanly.
-//
-// Translator is safe for concurrent use.
 type Translator struct {
 	g *graph.Graph
 
-	mu sync.Mutex
-	// refs[subject][cluster] is the set of binding keys that justify
-	// the (subject, cluster) edge. The edge exists in the graph iff
-	// this set is non-empty.
-	refs map[graph.Subject]map[graph.LogicalCluster]map[bindingKey]struct{}
-	// bindings tracks the last-observed state of each known binding,
-	// so the next Apply can compute a diff against it.
+	mu       sync.Mutex
+	refs     map[graph.Subject]map[graph.LogicalCluster]map[bindingKey]struct{}
 	bindings map[bindingKey]bindingState
 }
 
@@ -78,44 +62,25 @@ func NewTranslator(g *graph.Graph) *Translator {
 
 // ApplyClusterRoleBinding records the effect of a ClusterRoleBinding
 // observed in the given logical cluster, addressable at endpoint.
-//
-// Apply handles both creation and update: on first Apply for a key,
-// every translatable subject gains a reference (and is Granted on the
-// graph if this is its first reference); on subsequent Applys, the
-// diff between the previous and new subject sets is applied.
-//
-// Subjects whose Kind the translator doesn't know how to translate
-// (anything other than User, Group, ServiceAccount) are silently
-// skipped.
 func (t *Translator) ApplyClusterRoleBinding(crb *rbacv1.ClusterRoleBinding, cluster graph.LogicalCluster, endpoint string) {
 	key := bindingKey{cluster: cluster, name: crb.Name}
-	t.apply(key, translateSubjects(crb.Subjects), endpoint)
+	t.apply(key, translateSubjects(crb.Subjects, ""), endpoint)
 }
 
-// ApplyRoleBinding is the namespaced analogue of
-// ApplyClusterRoleBinding. The (cluster, namespace, name) triple is
-// what uniquely identifies a RoleBinding in this codebase.
-//
-// For SCAR purposes, RoleBindings and ClusterRoleBindings grant the
-// same kind of "this Subject can see this workspace" access — the
-// distinction is whether the binding is workspace- or
-// namespace-scoped, which doesn't matter at the SCAR level.
+// ApplyRoleBinding is the namespaced analogue of ApplyClusterRoleBinding.
 func (t *Translator) ApplyRoleBinding(rb *rbacv1.RoleBinding, cluster graph.LogicalCluster, endpoint string) {
 	key := bindingKey{cluster: cluster, namespace: rb.Namespace, name: rb.Name}
-	t.apply(key, translateSubjects(rb.Subjects), endpoint)
+	t.apply(key, translateSubjects(rb.Subjects, rb.Namespace), endpoint)
 }
 
 // RemoveClusterRoleBinding undoes a previously-applied CRB:
 // every (subject, cluster) edge it contributed loses one reference,
 // and any edge whose ref count reaches zero is Revoked on the graph.
-//
-// Removing an unknown binding is a no-op.
 func (t *Translator) RemoveClusterRoleBinding(name string, cluster graph.LogicalCluster) {
 	t.remove(bindingKey{cluster: cluster, name: name})
 }
 
-// RemoveRoleBinding is the namespaced analogue of
-// RemoveClusterRoleBinding.
+// RemoveRoleBinding is the namespaced analogue of RemoveClusterRoleBinding.
 func (t *Translator) RemoveRoleBinding(namespace, name string, cluster graph.LogicalCluster) {
 	t.remove(bindingKey{cluster: cluster, namespace: namespace, name: name})
 }
@@ -162,6 +127,10 @@ func (t *Translator) apply(key bindingKey, subjects []graph.Subject, endpoint st
 			}
 		}
 		t.incrementRef(s, key.cluster, endpoint, key)
+	}
+
+	if hasOld && oldState.endpoint != endpoint {
+		t.g.SetEndpoint(key.cluster, endpoint)
 	}
 }
 
@@ -210,11 +179,11 @@ func (t *Translator) decrementRef(s graph.Subject, c graph.LogicalCluster, key b
 	}
 }
 
-func translateSubjects(in []rbacv1.Subject) []graph.Subject {
+func translateSubjects(in []rbacv1.Subject, defaultNamespace string) []graph.Subject {
 	seen := make(map[graph.Subject]struct{})
 	out := make([]graph.Subject, 0, len(in))
 	for _, rs := range in {
-		s, ok := translateSubject(rs)
+		s, ok := translateSubject(rs, defaultNamespace)
 		if !ok {
 			continue
 		}
@@ -227,14 +196,24 @@ func translateSubjects(in []rbacv1.Subject) []graph.Subject {
 	return out
 }
 
-func translateSubject(rs rbacv1.Subject) (graph.Subject, bool) {
+func translateSubject(rs rbacv1.Subject, defaultNamespace string) (graph.Subject, bool) {
 	switch rs.Kind {
 	case rbacv1.UserKind:
 		return graph.User(rs.Name), true
 	case rbacv1.GroupKind:
 		return graph.Group(rs.Name), true
 	case rbacv1.ServiceAccountKind:
-		return graph.User("system:serviceaccount:" + rs.Namespace + ":" + rs.Name), true
+		namespace := rs.Namespace
+		if namespace == "" {
+			namespace = defaultNamespace
+		}
+		// Still empty: the subject cannot be resolved to a username,
+		// and "system:serviceaccount::name" would index an identity
+		// that can never authenticate.
+		if namespace == "" {
+			return graph.Subject{}, false
+		}
+		return graph.User("system:serviceaccount:" + namespace + ":" + rs.Name), true
 	default:
 		return graph.Subject{}, false
 	}

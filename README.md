@@ -36,13 +36,15 @@ Permission-aware workspace discovery for [kcp](https://www.kcp.io/). Implements 
 | Path | Description |
 |------|-------------|
 | `cmd/server` | Main binary. Runs the RBAC indexer + the virtual-workspace root apiserver. |
+| `cmd/init` | Init container binary. Bootstraps the `access.kcp.io` APIExport, schemas, and RBAC into kcp. |
 | `cmd/scar-to-kubeconfig` | Helper that calls SCAR and writes a scoped kubeconfig. |
-| `pkg/server` | Options + wiring: root apiserver, delegated authentication, per-VW authorization. |
+| `pkg/server` | Options + wiring: root apiserver, built-in authentication (OIDC, requestheader, client certs), per-VW authorization. |
 | `pkg/graph` | In-memory permission graph. No kcp imports — cleanly extractable. |
 | `pkg/rbacprovider` | Watches CRBs/RBs via multicluster-runtime, translates into graph grants. |
 | `pkg/virtual/mcp` | MCP virtual workspace (`/services/mcp`). Scopes tools to the authenticated caller's workspaces; per-workspace calls use impersonation. |
 | `pkg/virtual/mcp/tools` | MCP tool handlers: generic K8s resources + kcp-specific (workspaces). |
 | `pkg/virtual/scar` | Access virtual workspace (`/services/access`): create-only REST storage for SelfClusterAccessReview. Reads from the graph. |
+| `pkg/bootstrap` | Init bootstrapping logic for seeding APIExport, schemas, and RBAC into kcp. |
 | `pkg/generated/openapi` | Generated OpenAPI definitions for the access API (openapi-gen). |
 | `pkg/apis/access/v1alpha1` | `SelfClusterAccessReview` API types. |
 | `config/apiexport` | kcp APIExport + APIResourceSchema manifests for `access.kcp.io`. |
@@ -57,7 +59,7 @@ Permission-aware workspace discovery for [kcp](https://www.kcp.io/). Implements 
 
 ### Prerequisites
 
-- Go 1.25+
+- Go 1.26+
 - kcp running locally (`kcp start`)
 - `kubectl` with the [`kubectl-ws` plugin](https://github.com/kcp-dev/kcp)
 - `jq` (for reading JSON responses)
@@ -91,7 +93,7 @@ See [`docs/local-testing.md`](docs/local-testing.md) for the full walkthrough.
 
 ### Kind-based setup (full stack)
 
-Deploys the complete ADR 007 architecture into a local Kind cluster — kcp (single shard, multi-shard code path), Envoy AI Gateway with OAuth, Keycloak (OIDC), and access-vw with built-in MCP server:
+Deploys the complete ADR 007 architecture into a local Kind cluster — kcp (single shard, multi-shard code path), Envoy AI Gateway with OAuth, Keycloak (OIDC with mkcert-trusted TLS), and access-vw with built-in MCP server. Requires [mkcert](https://github.com/FiloSottile/mkcert) for host-trusted Keycloak certificates:
 
 ```sh
 make kind-setup     # ~5 min, creates everything
@@ -199,12 +201,13 @@ The RBAC indexer supports two run modes:
 - **Multi-shard** (`--kubeconfig` + `--apiexport-endpointslice`): Production mode. Uses the kcp apiexport provider via multicluster-runtime to watch RBAC bindings across all workspaces bound to the `access.kcp.io` APIExport. Only workspaces with an APIBinding for `access.kcp.io` are indexed — this is the opt-in design.
 - **Single-shard** (`--kubeconfig` only): Development mode. Standard client-go informers against one cluster.
 
-Authentication is standard Kubernetes delegated authentication (`DelegatingAuthenticationOptions`):
-1. **Front-proxy requestheader mTLS** — `X-Remote-User` / `X-Remote-Group` / `X-Remote-Extra-*` headers are trusted only from clients presenting a certificate signed by `--requestheader-client-ca-file` (optionally restricted with `--requestheader-allowed-names`). This is how kcp's front-proxy forwards identity.
-2. **Bearer token** — validated via `TokenReview` against kcp (`--authentication-kubeconfig`, defaults to `--kubeconfig`).
+Authentication is built-in via `BuiltInAuthenticationOptions` from kube-apiserver (the same pattern as kcp's own front-proxy):
+1. **OIDC (bearer token)** — `--oidc-issuer-url`, `--oidc-client-id`, `--oidc-username-claim`, etc. Tokens are validated locally against the OIDC provider's JWKS — no `TokenReview` round-trip. Must match kcp's OIDC configuration so usernames and groups resolve identically.
+2. **Front-proxy requestheader mTLS** — `X-Remote-User` / `X-Remote-Group` / `X-Remote-Extra-*` headers are trusted only from clients presenting a certificate signed by `--requestheader-client-ca-file` (optionally restricted with `--requestheader-allowed-names`). This is how kcp's front-proxy forwards identity.
 3. **Client certificate** — validated against `--client-ca-file`.
+4. **Anonymous** — enabled for health probes (`/readyz`, `/livez`) which pass through the always-allow-paths authorizer.
 
-> **Security note:** There is no unauthenticated header-trust mode. Header trust is gated on requestheader client-certificate mTLS — the same pattern the Kubernetes API server aggregation layer uses. Behind the front-proxy the caller's original bearer token never reaches access-vw, so per-workspace MCP calls **impersonate** the caller (`Impersonate-User` / `Impersonate-Group`) using the server's own kubeconfig identity; kcp re-authorizes every impersonated request and audit logs record both identities.
+> **Security note:** There is no unauthenticated header-trust mode. Header trust is gated on requestheader client-certificate mTLS — the same pattern the Kubernetes API server aggregation layer uses. Per-workspace MCP calls **impersonate** the caller (`Impersonate-User` / `Impersonate-Group`) using the server's own kubeconfig identity; kcp re-authorizes every impersonated request and audit logs record both identities. When access-vw receives requests via the front-proxy (SCAR path), the front-proxy strips the `Authorization` header after OIDC validation; when MCP clients connect directly via the AI Gateway, access-vw validates the OIDC token itself.
 
 ## Deployment
 

@@ -32,12 +32,14 @@
     <thead><tr><th>Path</th><th>What it does</th></tr></thead>
     <tbody>
       <tr><td><code>cmd/server</code></td><td>Main access-vw binary: RBAC provider + virtual-workspace root apiserver</td></tr>
+      <tr><td><code>cmd/init</code></td><td>Init container binary: bootstraps APIExport, schemas, and RBAC into kcp</td></tr>
       <tr><td><code>cmd/scar-to-kubeconfig</code></td><td>Calls SCAR and writes a scoped kubeconfig</td></tr>
-      <tr><td><code>pkg/server</code></td><td>Options and wiring: root apiserver, delegated authentication, per-VW authorization, debug endpoint</td></tr>
+      <tr><td><code>pkg/server</code></td><td>Options and wiring: root apiserver, built-in authentication (OIDC, requestheader, client certs), per-VW authorization, debug endpoint</td></tr>
       <tr><td><code>pkg/graph</code></td><td>In-memory permission graph and query layer</td></tr>
       <tr><td><code>pkg/rbacprovider</code></td><td>Watches RBAC state and translates grants into graph entries</td></tr>
       <tr><td><code>pkg/virtual/scar</code></td><td>Access virtual workspace: create-only REST storage for SelfClusterAccessReview</td></tr>
       <tr><td><code>pkg/virtual/mcp</code></td><td>MCP virtual workspace: transport, scoping, impersonated per-workspace clients, kcp-native tool registration</td></tr>
+      <tr><td><code>pkg/bootstrap</code></td><td>Init bootstrapping logic for seeding APIExport, schemas, and RBAC into kcp</td></tr>
       <tr><td><code>config/apiexport</code></td><td>APIExport and APIResourceSchema for <code>access.kcp.io</code></td></tr>
       <tr><td><code>hack/kind</code></td><td>Full-stack Kind automation, manifests, Helm values, and helper scripts</td></tr>
       <tr><td><code>docs/</code></td><td>Walkthroughs for local and Kind-based testing</td></tr>
@@ -55,6 +57,16 @@
       <tr><td><code>--endpoint-base</code></td><td>Front-proxy URL prefix used when building cluster endpoints in SCAR responses</td></tr>
       <tr><td><code>--apiexport-endpointslice</code></td><td>Enables multi-shard mode and watches workspaces bound to the named APIExportEndpointSlice</td></tr>
       <tr><td><code>--requestheader-client-ca-file</code></td><td>CA bundle for verifying the front-proxy's client certificate before trusting <code>X-Remote-*</code> identity headers</td></tr>
+      <tr><td><code>--requestheader-username-headers</code></td><td>Header names containing the forwarded username (e.g. <code>X-Remote-User</code>)</td></tr>
+      <tr><td><code>--requestheader-group-headers</code></td><td>Header names containing the forwarded groups (e.g. <code>X-Remote-Group</code>)</td></tr>
+      <tr><td><code>--requestheader-extra-headers-prefix</code></td><td>Prefix for extra identity headers (e.g. <code>X-Remote-Extra-</code>)</td></tr>
+      <tr><td><code>--requestheader-allowed-names</code></td><td>Restrict which CN in the requestheader client cert is trusted (e.g. <code>kcp-front-proxy</code>)</td></tr>
+      <tr><td><code>--oidc-issuer-url</code></td><td>OIDC issuer URL for JWT validation (must match kcp's configuration)</td></tr>
+      <tr><td><code>--oidc-client-id</code></td><td>OIDC client ID for audience validation</td></tr>
+      <tr><td><code>--oidc-username-claim</code></td><td>JWT claim to use as the username (e.g. <code>preferred_username</code>)</td></tr>
+      <tr><td><code>--oidc-username-prefix</code></td><td>Prefix for OIDC usernames; use <code>-</code> for no prefix</td></tr>
+      <tr><td><code>--oidc-groups-claim</code></td><td>JWT claim to use as groups (e.g. <code>groups</code>)</td></tr>
+      <tr><td><code>--oidc-ca-file</code></td><td>CA bundle for verifying the OIDC issuer's TLS certificate</td></tr>
     </tbody>
   </table></div>
 </section>

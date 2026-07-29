@@ -29,8 +29,8 @@
     <section class="section">
       <h2>Prerequisites</h2>
       <div class="two-col">
-        <article class="mini-card"><strong>Core tools</strong><p>Kind, <code>kubectl</code>, Helm, <code>jq</code>, Docker, and Go are required to build and deploy the stack.</p></article>
-        <article class="mini-card"><strong>Local TLS helpers</strong><p><code>mkcert</code> is recommended when you want to trust local HTTPS endpoints cleanly during client testing.</p></article>
+        <article class="mini-card"><strong>Core tools</strong><p>Kind, <code>kubectl</code>, Helm, <code>jq</code>, Docker, and Go 1.26+ are required to build and deploy the stack.</p></article>
+        <article class="mini-card"><strong>Local TLS helpers</strong><p><code>mkcert</code> is required for generating host-trusted Keycloak TLS certificates so MCP clients can complete the OAuth flow over HTTPS.</p></article>
       </div>
     </section>
 
@@ -60,23 +60,24 @@
       <h2>Connecting an MCP client</h2>
       <div class="example">
         <div class="example-title"><span>Copilot CLI / Claude Code</span></div>
-        <pre><code># 1. Generate a scoped kubeconfig
-make mcp-demo
-
-# 2. Run the MCP server yourself
-kubernetes-mcp-server --kubeconfig=alice.kubeconfig --cluster-provider=kcp --toolsets=core,kcp --port 8080
-
-# 3. Point your MCP client at it
+        <pre><code># The Kind setup deploys an AI Gateway with OAuth.
+# Point your MCP client at the gateway URL:
 {
   "mcpServers": {
-    "kcp-access": {
+    "kcp": {
       "type": "http",
-      "url": "http://localhost:8080/mcp"
+      "url": "http://mcp.kcp.example:8080/mcp"
     }
   }
-}</code></pre>
+}
+
+# The gateway handles OAuth (via Keycloak), validates the token,
+# and forwards it to access-vw which scopes tools to your workspaces.
+
+# Alternative: generate a scoped kubeconfig for use with upstream MCP server
+make mcp-demo</code></pre>
       </div>
-      <p>Copilot CLI can also manage the MCP server as a local process via <code>~/.copilot/mcp-config.json</code>. Claude Code can consume the same MCP endpoint.</p>
+      <p>The AI Gateway discovers Keycloak via protected resource metadata, so MCP clients automatically authenticate via OAuth. Copilot CLI and Claude Code both support the <code>http</code> transport type.</p>
     </section>
 
     <section class="section">
