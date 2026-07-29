@@ -1,8 +1,8 @@
 # MCPRoute for Envoy AI Gateway.
-# Routes MCP traffic directly to access-vw, which validates the OIDC
-# bearer token itself (same issuer/claims as kcp). Per-workspace calls
-# from the MCP tools use impersonation with the VW's own kubeconfig
-# identity, so the original token is not needed past access-vw.
+# Routes MCP traffic through the kcp front-proxy (same path as SCAR).
+# The front-proxy validates the OIDC bearer token, extracts identity, and
+# forwards it to access-vw via X-Remote-* headers over requestheader mTLS.
+# Per-workspace calls use impersonation with access-vw's own kubeconfig identity.
 ---
 apiVersion: aigateway.envoyproxy.io/v1beta1
 kind: MCPRoute
@@ -29,32 +29,31 @@ spec:
           - profile
           - email
   backendRefs:
-    - name: access-vw
+    - name: frontproxy-front-proxy
       kind: Service
-      port: 9443
+      port: 6443
       path: /services/mcp
       forwardHeaders:
         - name: Authorization
 ---
-# TLS origination for the Envoy → access-vw hop, verified against the
-# kcp root CA (the access-vw serving cert is issued by root-server-ca,
-# an intermediate of root-ca).
+# TLS origination for the Envoy → kcp front-proxy hop, verified against
+# the kcp root CA.
 apiVersion: gateway.networking.k8s.io/v1alpha3
 kind: BackendTLSPolicy
 metadata:
-  name: access-vw-tls
+  name: kcp-front-proxy-tls
   namespace: kcp-system
 spec:
   targetRefs:
     - group: ""
       kind: Service
-      name: access-vw
+      name: frontproxy-front-proxy
   validation:
     caCertificateRefs:
       - group: ""
         kind: ConfigMap
         name: kcp-root-ca
-    hostname: access-vw.kcp-system.svc.cluster.local
+    hostname: frontproxy-front-proxy.kcp-system.svc.cluster.local
 ---
 # Gateway for MCP traffic
 apiVersion: gateway.networking.k8s.io/v1

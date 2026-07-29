@@ -99,10 +99,10 @@
     <text x="180" y="373" text-anchor="middle" font-family="Inter, sans-serif" font-weight="600" font-size="12" fill="#1a1c2e">POST /mcp</text>
     <text x="180" y="396" text-anchor="middle" font-family="Inter, sans-serif" font-weight="500" font-size="10" fill="#5a5e78">+ Bearer token</text>
 
-    <!-- 5. Forward to access-vw directly -->
+    <!-- 5. Forward to access-vw via front-proxy -->
     <line x1="270" y1="420" x2="630" y2="420" stroke="#4a90d9" stroke-width="2" marker-end="url(#seq-arrow)"/>
-    <text x="450" y="401" text-anchor="middle" font-family="Inter, sans-serif" font-weight="600" font-size="12" fill="#1a1c2e">Forward directly to access-vw (OIDC validation)</text>
-    <text x="450" y="413" text-anchor="middle" font-family="Inter, sans-serif" font-weight="500" font-size="10" fill="#5a5e78">Bearer token validated by access-vw's own OIDC authenticator</text>
+    <text x="450" y="401" text-anchor="middle" font-family="Inter, sans-serif" font-weight="600" font-size="12" fill="#1a1c2e">Forward via kcp front-proxy (validates OIDC)</text>
+    <text x="450" y="413" text-anchor="middle" font-family="Inter, sans-serif" font-weight="500" font-size="10" fill="#5a5e78">X-Remote-User / X-Remote-Group over requestheader mTLS</text>
 
     <!-- Phase label: TOOLS -->
     <rect x="12" y="455" rx="4" ry="4" width="48" height="22" fill="#6bbd5b"/>

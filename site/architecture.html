@@ -144,7 +144,7 @@
         </article>
         <article class="mini-card">
           <strong>MCP via AI Gateway</strong>
-          <p>Envoy forwards the bearer token directly to access-vw, which validates it using its own OIDC authenticator (same issuer/claims configuration as kcp). access-vw scopes the MCP tools to that user's workspaces. This avoids the front-proxy hop for MCP traffic.</p>
+          <p>Envoy forwards the bearer token to the kcp front-proxy, which validates it (OIDC) and forwards the identity to access-vw as <code>X-Remote-*</code> headers over requestheader mTLS. access-vw scopes the MCP tools to that user's workspaces.</p>
         </article>
       </div>
     </section>
@@ -152,8 +152,8 @@
     <section class="section">
       <h2>ADR target design</h2>
       <div class="note">
-        <p>The setup implements the <a href="https://github.com/cnvergence/pm-architecture/blob/ec1fc0d334de2702dbcfb3070d6d01bc2031bbbf/adr/007-mcp-server-for-kcp-and-platform-mesh.md" target="_blank" rel="noreferrer">ADR 007</a> target design with two traffic paths: SCAR goes through the kcp front-proxy (AI Gateway → front-proxy → access-vw), while MCP traffic goes directly to access-vw (AI Gateway → access-vw). access-vw validates OIDC tokens itself for MCP requests, using the same issuer/claims configuration as kcp.</p>
-        <p>Per-workspace calls use <strong>impersonation</strong> (<code>Impersonate-User</code> / <code>Impersonate-Group</code> headers backed by access-vw's own kcp identity, which holds impersonation RBAC). kcp re-authorizes every impersonated request, and audit logs record both identities.</p>
+        <p>The setup implements the <a href="https://github.com/cnvergence/pm-architecture/blob/ec1fc0d334de2702dbcfb3070d6d01bc2031bbbf/adr/007-mcp-server-for-kcp-and-platform-mesh.md" target="_blank" rel="noreferrer">ADR 007</a> target design: both SCAR and MCP traffic go through the kcp front-proxy. The front-proxy handles OIDC validation and forwards identity as <code>X-Remote-User</code> headers over requestheader mTLS.</p>
+        <p>kcp's front-proxy <strong>strips the <code>Authorization</code> header</strong> after OIDC validation (standard K8s aggregation behavior), so the original token never reaches access-vw. Downstream per-workspace calls therefore use <strong>impersonation</strong> (<code>Impersonate-User</code> / <code>Impersonate-Group</code> headers backed by access-vw's own kcp identity, which holds impersonation RBAC). kcp re-authorizes every impersonated request, and audit logs record both identities.</p>
       </div>
     </section>
 

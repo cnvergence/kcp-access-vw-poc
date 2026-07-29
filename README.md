@@ -207,7 +207,7 @@ Authentication is built-in via `BuiltInAuthenticationOptions` from kube-apiserve
 3. **Client certificate** — validated against `--client-ca-file`.
 4. **Anonymous** — enabled for health probes (`/readyz`, `/livez`) which pass through the always-allow-paths authorizer.
 
-> **Security note:** There is no unauthenticated header-trust mode. Header trust is gated on requestheader client-certificate mTLS — the same pattern the Kubernetes API server aggregation layer uses. Per-workspace MCP calls **impersonate** the caller (`Impersonate-User` / `Impersonate-Group`) using the server's own kubeconfig identity; kcp re-authorizes every impersonated request and audit logs record both identities. When access-vw receives requests via the front-proxy (SCAR path), the front-proxy strips the `Authorization` header after OIDC validation; when MCP clients connect directly via the AI Gateway, access-vw validates the OIDC token itself.
+> **Security note:** There is no unauthenticated header-trust mode. Header trust is gated on requestheader client-certificate mTLS — the same pattern the Kubernetes API server aggregation layer uses. Behind the front-proxy the caller's original bearer token never reaches access-vw, so per-workspace MCP calls **impersonate** the caller (`Impersonate-User` / `Impersonate-Group`) using the server's own kubeconfig identity; kcp re-authorizes every impersonated request and audit logs record both identities. access-vw also has its own OIDC authenticator (same configuration as kcp) as a fallback for direct callers not going through the front-proxy.
 
 ## Deployment
 
