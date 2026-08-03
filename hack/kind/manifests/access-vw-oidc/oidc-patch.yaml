@@ -1,0 +1,45 @@
+# Adds local OIDC token validation to the access-vw Deployment.
+#
+# WARNING: this configuration MUST be byte-identical to kcp's OIDC
+# flags (RootShard spec.auth.oidc). access-vw indexes RBAC subjects
+# verbatim as kcp stores them; if kcp resolves a token to
+# "pm:bob@example.com" (issuer prefix) but access-vw resolves the same
+# token to "bob@example.com", graph lookups silently return no
+# clusters. Issuer URL, client ID, claims, and username/groups
+# prefixes must all match.
+- op: add
+  path: /spec/template/spec/containers/0/args/-
+  value: --oidc-issuer-url=https://keycloak.kcp.example:8443/realms/kcp
+- op: add
+  path: /spec/template/spec/containers/0/args/-
+  value: --oidc-client-id=kcp
+- op: add
+  path: /spec/template/spec/containers/0/args/-
+  value: --oidc-username-claim=preferred_username
+- op: add
+  path: /spec/template/spec/containers/0/args/-
+  value: --oidc-username-prefix=-
+- op: add
+  path: /spec/template/spec/containers/0/args/-
+  value: --oidc-groups-claim=groups
+- op: add
+  path: /spec/template/spec/containers/0/args/-
+  value: --oidc-groups-prefix=-
+- op: add
+  path: /spec/template/spec/containers/0/args/-
+  value: --oidc-ca-file=/etc/kcp/oidc-ca/ca.crt
+- op: add
+  path: /spec/template/spec/containers/0/volumeMounts/-
+  value:
+    name: oidc-ca
+    mountPath: /etc/kcp/oidc-ca
+    readOnly: true
+- op: add
+  path: /spec/template/spec/volumes/-
+  value:
+    name: oidc-ca
+    secret:
+      secretName: keycloak-ca
+      items:
+        - key: ca.crt
+          path: ca.crt

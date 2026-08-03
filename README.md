@@ -93,7 +93,7 @@ See [`docs/local-testing.md`](docs/local-testing.md) for the full walkthrough.
 
 ### Kind-based setup (full stack)
 
-Deploys the complete ADR 007 architecture into a local Kind cluster — kcp (single shard, multi-shard code path), Envoy AI Gateway with OAuth, Keycloak (OIDC with mkcert-trusted TLS), and access-vw with built-in MCP server. Requires [mkcert](https://github.com/FiloSottile/mkcert) for host-trusted Keycloak certificates:
+Deploys the complete ADR 007 architecture into a local Kind cluster — kcp (single shard, multi-shard code path), Keycloak (OIDC with mkcert-trusted TLS), and access-vw with built-in MCP server, all served through kcp's front-proxy. An Envoy AI Gateway in front of the front-proxy is an optional add-on (`make -C hack/kind ai-gateway`). Requires [mkcert](https://github.com/FiloSottile/mkcert) for host-trusted Keycloak certificates:
 
 ```sh
 make kind-setup     # ~5 min, creates everything
@@ -202,12 +202,12 @@ The RBAC indexer supports two run modes:
 - **Single-shard** (`--kubeconfig` only): Development mode. Standard client-go informers against one cluster.
 
 Authentication is built-in via `BuiltInAuthenticationOptions` from kube-apiserver (the same pattern as kcp's own front-proxy):
-1. **OIDC (bearer token)** — `--oidc-issuer-url`, `--oidc-client-id`, `--oidc-username-claim`, etc. Tokens are validated locally against the OIDC provider's JWKS — no `TokenReview` round-trip. Must match kcp's OIDC configuration so usernames and groups resolve identically.
-2. **Front-proxy requestheader mTLS** — `X-Remote-User` / `X-Remote-Group` / `X-Remote-Extra-*` headers are trusted only from clients presenting a certificate signed by `--requestheader-client-ca-file` (optionally restricted with `--requestheader-allowed-names`). This is how kcp's front-proxy forwards identity.
+1. **Front-proxy requestheader mTLS (default)** — `X-Remote-User` / `X-Remote-Group` / `X-Remote-Extra-*` headers are trusted only from clients presenting a certificate signed by `--requestheader-client-ca-file` (optionally restricted with `--requestheader-allowed-names`). This is how kcp's front-proxy forwards identity: it validates the caller's bearer token, applies kcp's OIDC prefixes, and forwards the resolved identity — so graph lookups match RBAC bindings by construction.
+2. **OIDC (opt-in)** — `--oidc-issuer-url`, `--oidc-client-id`, `--oidc-username-claim`, etc. For callers that reach access-vw directly, bypassing the front-proxy. Tokens are validated locally against the OIDC provider's JWKS — no `TokenReview` round-trip. Configuration **must be identical to kcp's** (including username/groups prefixes) so identities resolve exactly as RBAC bindings store them; see `config/deployment/oidc-patch.yaml`.
 3. **Client certificate** — validated against `--client-ca-file`.
 4. **Anonymous** — enabled for health probes (`/readyz`, `/livez`) which pass through the always-allow-paths authorizer.
 
-> **Security note:** There is no unauthenticated header-trust mode. Header trust is gated on requestheader client-certificate mTLS — the same pattern the Kubernetes API server aggregation layer uses. Behind the front-proxy the caller's original bearer token never reaches access-vw, so per-workspace MCP calls **impersonate** the caller (`Impersonate-User` / `Impersonate-Group`) using the server's own kubeconfig identity; kcp re-authorizes every impersonated request and audit logs record both identities. access-vw also has its own OIDC authenticator (same configuration as kcp) as a fallback for direct callers not going through the front-proxy.
+> **Security note:** There is no unauthenticated header-trust mode. Header trust is gated on requestheader client-certificate mTLS — the same pattern the Kubernetes API server aggregation layer uses. Behind the front-proxy the caller's original bearer token never reaches access-vw, so per-workspace MCP calls **impersonate** the caller (`Impersonate-User` / `Impersonate-Group`) using the server's own kubeconfig identity; kcp re-authorizes every impersonated request and audit logs record both identities.
 
 ## Deployment
 
@@ -219,7 +219,7 @@ See [`config/README.md`](config/README.md) for production deployment instruction
 
 ## Status
 
-> **Proof of concept — SCAR + built-in MCP working end-to-end.** The Kind setup demonstrates the full ADR 007 architecture with a single-shard kcp deployment running the multi-shard code path (`-apiexport-endpointslice`): OIDC authentication via Keycloak, MCP routing via Envoy AI Gateway with OAuth, per-user workspace scoping via the in-process permission graph, and RBAC indexing via the APIExport provider. The built-in MCP server exposes kcp workspace tools scoped to the authenticated caller — no separate MCP server binary needed. Expect APIs and package layout to evolve.
+> **Proof of concept — SCAR + built-in MCP working end-to-end.** The Kind setup demonstrates the full ADR 007 architecture with a single-shard kcp deployment running the multi-shard code path (`-apiexport-endpointslice`): OIDC authentication via Keycloak at the front-proxy, SCAR and MCP served through the front-proxy with requestheader identity forwarding, per-user workspace scoping via the in-process permission graph, and RBAC indexing via the APIExport provider. An Envoy AI Gateway with OAuth is available as an opt-in add-on. The built-in MCP server exposes kcp workspace tools scoped to the authenticated caller — no separate MCP server binary needed. Expect APIs and package layout to evolve.
 
 📖 **Documentation site:** [cnvergence.github.io/kcp-access-vw-poc](https://cnvergence.github.io/kcp-access-vw-poc/)
 

@@ -127,7 +127,7 @@
       <h2>Components</h2>
       <div class="three-col">
         <article class="mini-card"><strong>MCP Client</strong><p>Claude Code, Copilot, or any MCP-capable client that authenticates with Keycloak and speaks MCP over HTTP.</p></article>
-        <article class="mini-card"><strong>AI Gateway</strong><p>Envoy receives MCP traffic, enforces OAuth, and forwards the caller's <code>Authorization</code> header to the backend path.</p></article>
+        <article class="mini-card"><strong>AI Gateway <em>(optional)</em></strong><p>Envoy receives MCP traffic, enforces OAuth, and forwards the caller's <code>Authorization</code> header to the kcp front-proxy. Opt-in via <code>make -C hack/kind ai-gateway</code>.</p></article>
         <article class="mini-card"><strong>Keycloak</strong><p>OIDC issuer for user login, dynamic client registration, and access tokens with the <code>aud: kcp</code> audience.</p></article>
         <article class="mini-card"><strong>access-vw</strong><p>A virtual-workspace root apiserver exposing both virtual workspaces (SCAR and MCP) over TLS on <code>:9443</code>.</p></article>
         <article class="mini-card"><strong>Permission graph</strong><p>An in-memory subject-to-cluster index built from watched <code>ClusterRoleBindings</code> and <code>RoleBindings</code>.</p></article>
@@ -139,12 +139,12 @@
       <h2>Two traffic paths</h2>
       <div class="two-col">
         <article class="mini-card">
-          <strong>SCAR via front-proxy</strong>
-          <p>The kcp front-proxy authenticates the caller first, injects <code>X-Remote-User</code> and <code>X-Remote-Group</code>, and forwards the SCAR request to access-vw.</p>
+          <strong>SCAR and MCP via front-proxy (default)</strong>
+          <p>The kcp front-proxy authenticates the caller first, injects <code>X-Remote-User</code> and <code>X-Remote-Group</code>, and forwards the request to access-vw. Both <code>/services/access</code> and <code>/services/mcp</code> use this path.</p>
         </article>
         <article class="mini-card">
-          <strong>MCP via AI Gateway</strong>
-          <p>Envoy forwards the bearer token to the kcp front-proxy, which validates it (OIDC) and forwards the identity to access-vw as <code>X-Remote-*</code> headers over requestheader mTLS. access-vw scopes the MCP tools to that user's workspaces.</p>
+          <strong>MCP via AI Gateway (optional)</strong>
+          <p>Envoy handles OAuth and forwards the bearer token to the kcp front-proxy, which validates it (OIDC) and forwards the identity to access-vw as <code>X-Remote-*</code> headers over requestheader mTLS. access-vw scopes the MCP tools to that user's workspaces.</p>
         </article>
       </div>
     </section>

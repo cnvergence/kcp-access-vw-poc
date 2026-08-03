@@ -95,7 +95,7 @@ install-cert-manager: ## Install cert-manager
 	@sleep 10
 
 .PHONY: install-envoy
-install-envoy: ## Install Envoy Gateway + AI Gateway (helm)
+install-envoy: ## [optional] Install Envoy Gateway + AI Gateway (helm)
 	$(call info,Installing Envoy Gateway $(ENVOY_GATEWAY_VERSION))
 	@helm upgrade --install eg oci://docker.io/envoyproxy/gateway-helm \
 		--version $(ENVOY_GATEWAY_VERSION) \
@@ -202,7 +202,7 @@ install-access-vw: build-image ## Build image + deploy access-vw
 # ── MCP server + AI Gateway route ───────────────────────────────────────────
 
 .PHONY: install-mcp
-install-mcp: ## Install MCPRoute (via kcp front-proxy) + Gateway
+install-mcp: ## [optional] Install MCPRoute (via kcp front-proxy) + Gateway
 	$(call info,Publishing kcp root CA for Envoy backend TLS validation)
 	@$(KC) get secret root-ca -n $(KCP_NS) -o jsonpath='{.data.tls\.crt}' | base64 -d > /tmp/kcp-root-ca.crt; \
 	$(KC) create configmap kcp-root-ca -n $(KCP_NS) \
@@ -236,6 +236,32 @@ uninstall-mcp-upstream: ## Remove upstream kubernetes-mcp-server
 	@helm uninstall mcp-server --namespace $(KCP_NS) 2>/dev/null || true
 	@$(KC) delete -k manifests/mcp-server --ignore-not-found
 
+# ── Optional add-ons ─────────────────────────────────────────────────────────
+
+.PHONY: ai-gateway
+ai-gateway: ## [optional] Deploy Envoy AI Gateway + MCPRoute in front of the front-proxy
+	@$(MAKE) install-envoy
+	@$(MAKE) install-mcp
+	@echo ""
+	@MCP_IP=$$($(KC) get svc -n envoy-gateway-system \
+		-l gateway.envoyproxy.io/owning-gateway-name=kcp-mcp-gateway \
+		-o jsonpath='{.items[0].status.loadBalancer.ingress[0].ip}' 2>/dev/null); \
+	echo "==> ✅ AI Gateway deployed"; \
+	echo "==> MCP endpoint (gateway): http://mcp.kcp.example:8080/mcp  (IP: $${MCP_IP:-pending})"; \
+	echo "==> Add to /etc/hosts:      $${MCP_IP:-172.18.0.200}  mcp.kcp.example"
+
+.PHONY: enable-oidc
+enable-oidc: ## [optional] Enable local OIDC validation on access-vw (for direct callers)
+	$(call info,Enabling OIDC on access-vw — config must match kcp exactly)
+	@$(KC) apply -k manifests/access-vw-oidc
+	$(call wait-for-deployment,$(KCP_NS),access-vw,120s)
+
+.PHONY: disable-oidc
+disable-oidc: ## Revert access-vw to requestheader-only auth
+	$(call info,Disabling OIDC on access-vw)
+	@$(KC) apply -k manifests/access-vw
+	$(call wait-for-deployment,$(KCP_NS),access-vw,120s)
+
 # ── Seed test data ───────────────────────────────────────────────────────────
 
 .PHONY: seed
@@ -265,36 +291,32 @@ seed: ## Create per-user workspaces, APIBinding, RBAC
 # ── Full setup ───────────────────────────────────────────────────────────────
 
 .PHONY: setup
-setup: ## Full end-to-end setup
+setup: ## Full end-to-end setup (front-proxy topology; AI gateway is opt-in)
 	@$(MAKE) kind-create
 	@$(MAKE) install-metallb
 	@$(MAKE) install-cert-manager
 	@$(MAKE) install-keycloak
-	@$(MAKE) install-envoy
 	@$(MAKE) install-kcp
 	@$(MAKE) install-access-vw
-	@$(MAKE) install-mcp
 	@$(MAKE) seed
 	@echo ""
 	@echo "==> ✅ Setup complete!"
 	@echo ""
-	@MCP_IP=$$($(KC) get svc -n envoy-gateway-system \
-		-l gateway.envoyproxy.io/owning-gateway-name=kcp-mcp-gateway \
-		-o jsonpath='{.items[0].status.loadBalancer.ingress[0].ip}' 2>/dev/null); \
-	echo "==> MCP endpoint:   http://mcp.kcp.example:8080/mcp  (IP: $${MCP_IP:-pending})"; \
+	@echo "==> MCP endpoint:   https://root.kcp.example:6443/services/mcp  (via front-proxy)"; \
+	echo "==> SCAR endpoint:  https://root.kcp.example:6443/services/access/..."; \
 	echo "==> Keycloak:       https://keycloak.kcp.example:8443  (admin/admin)"; \
 	echo "==> kcp FrontProxy: https://root.kcp.example:6443"; \
 	echo "==> kcp admin:      export KUBECONFIG=$(SCRIPT_DIR)/admin.kubeconfig"; \
 	echo ""; \
 	echo "==> Add to /etc/hosts:"; \
-	echo "==>   $${MCP_IP:-172.18.0.200}  mcp.kcp.example"; \
 	echo "==>   127.0.0.1  keycloak.kcp.example root.kcp.example"; \
 	echo ""; \
 	echo "==> OIDC users:     alice / alice, bob / bob  (realm: kcp)"; \
 	echo "==> Get token:      $(SCRIPT_DIR)/scripts/get-oidc-token.sh alice"; \
 	echo ""; \
-	echo "==> To connect Claude Code, add to .mcp.json:"; \
-	echo '==>   { "mcpServers": { "kcp": { "type": "http", "url": "http://mcp.kcp.example:8080/mcp" } } }'
+	echo "==> Optional add-ons:"; \
+	echo "==>   make ai-gateway   # Envoy AI Gateway + MCPRoute (http://mcp.kcp.example:8080/mcp)"; \
+	echo "==>   make enable-oidc  # local OIDC on access-vw for direct callers"
 
 # ── Utilities ────────────────────────────────────────────────────────────────
 

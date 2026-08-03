@@ -1,0 +1,59 @@
+# Optional JSON6902 patch: enable local OIDC validation on access-vw.
+#
+# Apply on top of deployment.yaml when callers should be able to reach
+# access-vw directly with a bearer token, bypassing the FrontProxy
+# (e.g. an AI gateway routing straight to the access-vw Service).
+# In the default topology (all traffic through the FrontProxy) this
+# patch is unnecessary — the FrontProxy validates tokens and forwards
+# identities via X-Remote-* headers.
+#
+# WARNING: this configuration MUST be byte-identical to kcp's OIDC
+# flags. access-vw indexes RBAC subjects verbatim as kcp stores them;
+# if kcp resolves a token to "pm:bob@example.com" (username prefix)
+# but access-vw resolves the same token to "bob@example.com", graph
+# lookups silently return no clusters. Issuer URL, client ID, claims,
+# and username/groups prefixes must all match kcp's configuration.
+#
+# Usage (kustomize):
+#   patches:
+#     - path: oidc-patch.yaml
+#       target:
+#         kind: Deployment
+#         name: access-vw
+#
+# Also create the referenced secret:
+#   access-vw-oidc-ca — key "ca.crt": CA that signed the OIDC issuer's
+#   TLS certificate (only needed for private CAs).
+- op: add
+  path: /spec/template/spec/containers/0/args/-
+  value: --oidc-issuer-url=https://keycloak.kcp.example:8443/realms/kcp
+- op: add
+  path: /spec/template/spec/containers/0/args/-
+  value: --oidc-client-id=kcp
+- op: add
+  path: /spec/template/spec/containers/0/args/-
+  value: --oidc-username-claim=preferred_username
+- op: add
+  path: /spec/template/spec/containers/0/args/-
+  value: --oidc-username-prefix=-
+- op: add
+  path: /spec/template/spec/containers/0/args/-
+  value: --oidc-groups-claim=groups
+- op: add
+  path: /spec/template/spec/containers/0/args/-
+  value: --oidc-groups-prefix=-
+- op: add
+  path: /spec/template/spec/containers/0/args/-
+  value: --oidc-ca-file=/etc/access-vw/oidc-ca/ca.crt
+- op: add
+  path: /spec/template/spec/containers/0/volumeMounts/-
+  value:
+    name: oidc-ca
+    mountPath: /etc/access-vw/oidc-ca
+    readOnly: true
+- op: add
+  path: /spec/template/spec/volumes/-
+  value:
+    name: oidc-ca
+    secret:
+      secretName: access-vw-oidc-ca
