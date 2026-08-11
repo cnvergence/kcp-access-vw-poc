@@ -36,10 +36,9 @@ var _ accessprovider.AccessProvider = (*Provider)(nil)
 // Provider is the kcp-native RBAC AccessProvider.
 //
 // On Start, it stands up cross-shard informers on
-// ClusterRoleBinding and RoleBinding (RBAC verb-level filtering
-// against (Cluster)Role rules is a follow-up; the MVP treats any
-// binding as "view"), translates events into graph mutations via a
-// Translator, and marks the graph Ready once the initial sync
+// ClusterRoleBinding, RoleBinding, ClusterRole, and Role. The
+// Translator exposes only bindings backed by an effective resource
+// read permission and marks the graph Ready once the initial sync
 // completes.
 //
 // Provider supports three modes, picked at Start time from the
@@ -76,6 +75,13 @@ type Provider struct {
 	// non-empty, Start runs in multi-shard mode. Empty means single-
 	// shard (or stub if RestConfig is also nil).
 	APIExportEndpointSlice string
+
+	// KCPBootstrapRoles enables recognition of KCP's global admin,
+	// cluster-admin, edit, and view roles when they are not materialized
+	// in the watched logical cluster. Multi-shard KCP mode enables this
+	// automatically. Set it explicitly for single-shard KCP; leave it
+	// false for a plain Kubernetes cluster.
+	KCPBootstrapRoles bool
 
 	translator *Translator
 	engaged    clusterSet
@@ -121,7 +127,7 @@ func (s *clusterSet) len() int {
 // Start implements accessprovider.AccessProvider. It dispatches to
 // one of three execution modes (multi-shard, single-shard, stub).
 func (p *Provider) Start(ctx context.Context, g *graph.Graph) error {
-	p.translator = NewTranslator(g)
+	p.translator = p.newTranslator(g)
 
 	switch {
 	case p.RestConfig != nil && p.APIExportEndpointSlice != "":
@@ -139,6 +145,14 @@ func (p *Provider) Start(ctx context.Context, g *graph.Graph) error {
 		<-ctx.Done()
 		return nil
 	}
+}
+
+func (p *Provider) newTranslator(g *graph.Graph) *Translator {
+	var options []TranslatorOption
+	if p.KCPBootstrapRoles || (p.RestConfig != nil && p.APIExportEndpointSlice != "") {
+		options = append(options, WithKCPBootstrapRoles())
+	}
+	return NewTranslator(g, options...)
 }
 
 func (p *Provider) endpointFor(c graph.LogicalCluster) string {

@@ -23,7 +23,9 @@ Permission-aware workspace discovery for [kcp](https://www.kcp.io/). Implements 
                          └──────────────────┘
 ```
 
-1. **Indexing:** The server watches `ClusterRoleBindings` and `RoleBindings` across every kcp workspace that has bound the `access.kcp.io` APIExport. These bindings are translated into an in-memory permission graph mapping subjects (users, groups, service accounts) to logical clusters.
+1. **Indexing:** The server watches RBAC bindings and their referenced roles across every kcp workspace that has bound the `access.kcp.io` APIExport. A workspace is discoverable only when the referenced role grants `get`, `list`, `watch`, or `*` on an API resource. Missing, invalid, write-only, and non-resource-only roles fail closed.
+
+   In APIExport-backed KCP mode, the standard global `admin`, `cluster-admin`, `edit`, and `view` ClusterRoles are recognized by name because KCP does not materialize them in consumer workspaces. Custom global roles must be observable through the permission claims or they fail closed.
 
 2. **Querying (SCAR):** A caller POSTs to the SCAR endpoint with a bearer token (or, behind kcp's front-proxy, identity forwarded via requestheader mTLS). The apiserver's authentication layer resolves the caller's identity and the server returns the list of `(clusterName, endpoint)` pairs the caller can access.
 

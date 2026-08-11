@@ -34,7 +34,7 @@
       <span class="step-num">1</span>
       <div>
         <strong>RBAC indexing.</strong>
-        <span>The server watches <code>ClusterRoleBindings</code> and <code>RoleBindings</code> across all kcp workspaces and translates them into an in-memory permission graph.</span>
+        <span>The server watches RBAC bindings and their referenced roles across all kcp workspaces. Only bindings backed by a resource-read grant enter the in-memory permission graph.</span>
       </div>
     </li>
     <li>

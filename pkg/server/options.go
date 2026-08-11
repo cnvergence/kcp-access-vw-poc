@@ -61,15 +61,21 @@ type Options struct {
 	// runs in multi-shard mode and only indexes workspaces bound to
 	// that APIExport.
 	APIExportEndpointSlice string
+
+	// KCPBootstrapRoles recognizes KCP's global bootstrap roles in
+	// single-shard mode. Disable this only when targeting plain
+	// Kubernetes instead of kcp.
+	KCPBootstrapRoles bool
 }
 
 // NewOptions returns options with defaults suitable for running behind
 // kcp's front-proxy.
 func NewOptions() *Options {
 	o := &Options{
-		SecureServing:  genericoptions.NewSecureServingOptions(),
-		Authentication: NewAuthentication(),
-		Authorization:  vwoptions.NewAuthorization(),
+		SecureServing:     genericoptions.NewSecureServingOptions(),
+		Authentication:    NewAuthentication(),
+		Authorization:     vwoptions.NewAuthorization(),
+		KCPBootstrapRoles: true,
 	}
 
 	o.SecureServing.BindPort = 9443
@@ -90,6 +96,9 @@ func (o *Options) AddFlags(fs *pflag.FlagSet) {
 		"Name of the APIExportEndpointSlice for the access VW's system APIExport. "+
 			"When set, the RBAC provider runs in multi-shard mode via multicluster-runtime; "+
 			"only workspaces with an APIBinding to that APIExport are indexed.")
+	fs.BoolVar(&o.KCPBootstrapRoles, "kcp-bootstrap-roles", true,
+		"Recognize KCP's global admin, cluster-admin, edit, and view roles in single-shard mode. "+
+			"Set false only when targeting plain Kubernetes.")
 	if fs.Lookup("kubeconfig") == nil {
 		fs.StringVar(&o.Kubeconfig, "kubeconfig", "", "Path to the kubeconfig for the target kcp (required).")
 	}

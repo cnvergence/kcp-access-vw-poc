@@ -40,6 +40,8 @@ func (p *Provider) runInformers(ctx context.Context, client kubernetes.Interface
 
 	crbInformer := factory.Rbac().V1().ClusterRoleBindings().Informer()
 	rbInformer := factory.Rbac().V1().RoleBindings().Informer()
+	clusterRoleInformer := factory.Rbac().V1().ClusterRoles().Informer()
+	roleInformer := factory.Rbac().V1().Roles().Informer()
 
 	if _, err := crbInformer.AddEventHandler(cache.ResourceEventHandlerFuncs{
 		AddFunc:    func(obj any) { p.onCRB(obj, false) },
@@ -56,12 +58,28 @@ func (p *Provider) runInformers(ctx context.Context, client kubernetes.Interface
 	}); err != nil {
 		return fmt.Errorf("register RB handler: %w", err)
 	}
+	if _, err := clusterRoleInformer.AddEventHandler(cache.ResourceEventHandlerFuncs{
+		AddFunc:    func(obj any) { p.onClusterRole(obj, false) },
+		UpdateFunc: func(_, obj any) { p.onClusterRole(obj, false) },
+		DeleteFunc: func(obj any) { p.onClusterRole(obj, true) },
+	}); err != nil {
+		return fmt.Errorf("register ClusterRole handler: %w", err)
+	}
+	if _, err := roleInformer.AddEventHandler(cache.ResourceEventHandlerFuncs{
+		AddFunc:    func(obj any) { p.onRole(obj, false) },
+		UpdateFunc: func(_, obj any) { p.onRole(obj, false) },
+		DeleteFunc: func(obj any) { p.onRole(obj, true) },
+	}); err != nil {
+		return fmt.Errorf("register Role handler: %w", err)
+	}
 
 	factory.Start(ctx.Done())
 
 	if !cache.WaitForCacheSync(ctx.Done(),
 		crbInformer.HasSynced,
 		rbInformer.HasSynced,
+		clusterRoleInformer.HasSynced,
+		roleInformer.HasSynced,
 	) {
 		return fmt.Errorf("informer cache sync failed (context cancelled or watch error)")
 	}
@@ -70,6 +88,32 @@ func (p *Provider) runInformers(ctx context.Context, client kubernetes.Interface
 
 	<-ctx.Done()
 	return nil
+}
+
+func (p *Provider) onClusterRole(obj any, deleted bool) {
+	role, deleted, ok := typedFromEvent[*rbacv1.ClusterRole](obj, deleted)
+	if !ok {
+		return
+	}
+	cluster := clusterOf(role)
+	if deleted {
+		p.translator.RemoveClusterRole(role.Name, cluster)
+		return
+	}
+	p.translator.ApplyClusterRole(role, cluster)
+}
+
+func (p *Provider) onRole(obj any, deleted bool) {
+	role, deleted, ok := typedFromEvent[*rbacv1.Role](obj, deleted)
+	if !ok {
+		return
+	}
+	cluster := clusterOf(role)
+	if deleted {
+		p.translator.RemoveRole(role.Namespace, role.Name, cluster)
+		return
+	}
+	p.translator.ApplyRole(role, cluster)
 }
 
 func (p *Provider) onCRB(obj any, deleted bool) {
