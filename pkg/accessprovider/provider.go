@@ -9,8 +9,8 @@
 // with providers directly; it reads from the same graph the providers
 // populate.
 //
-// The MVP ships a single provider — the kcp-native one watching
-// ClusterRoleBindings and RoleBindings via cross-shard informers.
+// The MVP ships a single provider — the kcp-native one watching RBAC
+// bindings and their referenced roles via cross-shard informers.
 // Additional implementations (external webhook, FGA) follow the same
 // contract: Start populates the graph until ctx is cancelled, and
 // calls graph.SetReady() once the initial sync is complete.

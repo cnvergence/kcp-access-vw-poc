@@ -72,7 +72,7 @@ curl -k -X POST   -H "Authorization: Bearer $TOKEN"   -H "Content-Type: applicat
 
     <section class="section">
       <h2>How it works</h2>
-      <p>The RBAC provider watches <code>ClusterRoleBindings</code> and <code>RoleBindings</code> across opted-in workspaces, translates subjects into graph entries, and stores the result as subject-to-cluster mappings. A SCAR request only needs identity resolution plus a graph lookup.</p>
+      <p>The RBAC provider watches bindings and their referenced roles across opted-in workspaces. It adds subject-to-cluster mappings only for roles with a resource-read grant. A SCAR request only needs identity resolution plus a graph lookup.</p>
       <div class="note">
         <p>That is why SCAR can answer “where can this user go?” in one shot instead of repeating <code>SelfSubjectAccessReview</code> across every workspace.</p>
       </div>

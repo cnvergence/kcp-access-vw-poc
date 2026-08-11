@@ -35,9 +35,8 @@ spec:
   #
   # Verbs are restricted to read-only — the controller never mutates
   # RBAC. Cluster(Role) is claimed alongside (Cluster)RoleBinding so
-  # the future "view-or-above" verb resolver can trace bindings to
-  # rules without an additional binding. Until that resolver lands,
-  # the role claims are unused but harmless.
+  # discovery can resolve each binding to its effective resource-read
+  # rules. Missing and write-only roles fail closed.
   permissionClaims:
     - group: rbac.authorization.k8s.io
       resource: clusterrolebindings

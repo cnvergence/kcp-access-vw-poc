@@ -56,6 +56,7 @@
       <tr><td><code>--kubeconfig</code></td><td>Required path to the kubeconfig used for TokenReview and RBAC watching</td></tr>
       <tr><td><code>--endpoint-base</code></td><td>Front-proxy URL prefix used when building cluster endpoints in SCAR responses</td></tr>
       <tr><td><code>--apiexport-endpointslice</code></td><td>Enables multi-shard mode and watches workspaces bound to the named APIExportEndpointSlice</td></tr>
+      <tr><td><code>--kcp-bootstrap-roles</code></td><td>Recognizes KCP's global bootstrap roles in single-shard mode; disable only for plain Kubernetes</td></tr>
       <tr><td><code>--requestheader-client-ca-file</code></td><td>CA bundle for verifying the front-proxy's client certificate before trusting <code>X-Remote-*</code> identity headers</td></tr>
       <tr><td><code>--requestheader-username-headers</code></td><td>Header names containing the forwarded username (e.g. <code>X-Remote-User</code>)</td></tr>
       <tr><td><code>--requestheader-group-headers</code></td><td>Header names containing the forwarded groups (e.g. <code>X-Remote-Group</code>)</td></tr>

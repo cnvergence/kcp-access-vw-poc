@@ -159,8 +159,72 @@ func registerRBACControllers(
 		})); err != nil {
 		return fmt.Errorf("build RB controller: %w", err)
 	}
+	if err := mcbuilder.ControllerManagedBy(mgr).
+		Named("access-vw-clusterrole").
+		For(&rbacv1.ClusterRole{}).
+		Complete(mcreconcile.Func(func(ctx context.Context, req mcreconcile.Request) (ctrl.Result, error) {
+			return reconcileClusterRole(ctx, mgr, t, req)
+		})); err != nil {
+		return fmt.Errorf("build ClusterRole controller: %w", err)
+	}
+	if err := mcbuilder.ControllerManagedBy(mgr).
+		Named("access-vw-role").
+		For(&rbacv1.Role{}).
+		Complete(mcreconcile.Func(func(ctx context.Context, req mcreconcile.Request) (ctrl.Result, error) {
+			return reconcileRole(ctx, mgr, t, req)
+		})); err != nil {
+		return fmt.Errorf("build Role controller: %w", err)
+	}
 
 	return nil
+}
+
+func reconcileClusterRole(
+	ctx context.Context,
+	mgr mcmanager.Manager,
+	t *Translator,
+	req mcreconcile.Request,
+) (ctrl.Result, error) {
+	cluster := graph.LogicalCluster(req.ClusterName)
+	cl, err := mgr.GetCluster(ctx, req.ClusterName)
+	if err != nil {
+		return reconcile.Result{}, fmt.Errorf("get cluster %q: %w", req.ClusterName, err)
+	}
+
+	var role rbacv1.ClusterRole
+	if err := cl.GetClient().Get(ctx, req.NamespacedName, &role); err != nil {
+		if apierrors.IsNotFound(err) {
+			t.RemoveClusterRole(req.Name, cluster)
+			return reconcile.Result{}, nil
+		}
+		return reconcile.Result{}, fmt.Errorf("get ClusterRole: %w", err)
+	}
+	t.ApplyClusterRole(&role, cluster)
+	return reconcile.Result{}, nil
+}
+
+func reconcileRole(
+	ctx context.Context,
+	mgr mcmanager.Manager,
+	t *Translator,
+	req mcreconcile.Request,
+) (ctrl.Result, error) {
+	cluster := graph.LogicalCluster(req.ClusterName)
+	cl, err := mgr.GetCluster(ctx, req.ClusterName)
+	if err != nil {
+		return reconcile.Result{}, fmt.Errorf("get cluster %q: %w", req.ClusterName, err)
+	}
+
+	var role rbacv1.Role
+	if err := cl.GetClient().Get(ctx, req.NamespacedName, &role); err != nil {
+		if apierrors.IsNotFound(err) {
+			t.RemoveRole(req.Namespace, req.Name, cluster)
+			return reconcile.Result{}, nil
+		}
+		return reconcile.Result{}, fmt.Errorf("get Role: %w", err)
+	}
+	t.ApplyRole(&role, cluster)
+	return reconcile.Result{}, nil
 }
 
 func reconcileCRB(

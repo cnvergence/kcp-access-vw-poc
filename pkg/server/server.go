@@ -66,6 +66,7 @@ func Run(ctx context.Context, o *Options) error {
 	provider := rbacprovider.New(o.EndpointBase)
 	provider.RestConfig = restConfig
 	provider.APIExportEndpointSlice = o.APIExportEndpointSlice
+	provider.KCPBootstrapRoles = o.KCPBootstrapRoles
 
 	providerErr := make(chan error, 1)
 	go func() {
